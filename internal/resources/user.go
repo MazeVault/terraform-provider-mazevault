@@ -47,15 +47,18 @@ func (r *UserResource) Schema(_ context.Context, _ resource.SchemaRequest, resp 
 			"full_name": schema.StringAttribute{
 				Required:            true,
 				MarkdownDescription: "Full display name of the user.",
+				PlanModifiers:       []planmodifier.String{stringplanmodifier.RequiresReplace()},
 			},
 			"role": schema.StringAttribute{
 				Optional:            true,
 				MarkdownDescription: "Initial role assignment (`admin`, `member`, `viewer`).",
+				PlanModifiers:       []planmodifier.String{stringplanmodifier.RequiresReplace()},
 			},
 			"password": schema.StringAttribute{
-				Optional:            true,
+				Required:            true,
 				Sensitive:           true,
-				MarkdownDescription: "Initial password (only relevant for local accounts; SSO users do not require this).",
+				MarkdownDescription: "Initial password for the user account. Required by the MazeVault API for all users, including those who will later authenticate via SSO.",
+				PlanModifiers:       []planmodifier.String{stringplanmodifier.RequiresReplace()},
 			},
 		},
 	}

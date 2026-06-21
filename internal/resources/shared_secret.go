@@ -44,8 +44,8 @@ func (r *SharedSecretResource) Schema(_ context.Context, _ resource.SchemaReques
 				PlanModifiers:       []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"secret_id": schema.StringAttribute{
-				Optional:            true,
-				MarkdownDescription: "ID of an existing MazeVault secret to share. Mutually exclusive with inline content.",
+				Required:            true,
+				MarkdownDescription: "ID of the existing MazeVault secret to share.",
 				PlanModifiers:       []planmodifier.String{stringplanmodifier.RequiresReplace()},
 			},
 			"content_type": schema.StringAttribute{
@@ -67,9 +67,8 @@ func (r *SharedSecretResource) Schema(_ context.Context, _ resource.SchemaReques
 				MarkdownDescription: "Maximum number of times the secret can be viewed. Defaults to 1.",
 			},
 			"expires_at": schema.StringAttribute{
-				Optional:            true,
 				Computed:            true,
-				MarkdownDescription: "ISO-8601 expiry timestamp. If not set, the backend applies a default TTL.",
+				MarkdownDescription: "ISO-8601 expiry timestamp as computed by the backend from `ttl_hours`.",
 				PlanModifiers:       []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"share_url": schema.StringAttribute{

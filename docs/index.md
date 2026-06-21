@@ -40,7 +40,7 @@ provider "mazevault" {
 terraform {
   required_providers {
     mazevault = {
-      source  = "mazevault/mazevault"
+      source  = "MazeVault/mazevault"
       version = "~> 1.0"
     }
   }

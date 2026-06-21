@@ -83,11 +83,7 @@ func (r *ProjectSettingsResource) Create(ctx context.Context, req resource.Creat
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	if _, err := r.client.UpdateProjectSettings(data.ProjectID.ValueString(), &mazevault.UpdateProjectSettingsRequest{
-		RetentionDays: int(data.RetentionDays.ValueInt64()),
-		SlackChannel:  data.SlackChannel.ValueString(),
-		OwnerEmail:    data.OwnerEmail.ValueString(),
-	}); err != nil {
+	if _, err := r.client.UpdateProjectSettings(data.ProjectID.ValueString(), projectSettingsRequest(data)); err != nil {
 		resp.Diagnostics.AddError("Create Project Settings Error", fmt.Sprintf("Unable to apply project settings: %s", err))
 		return
 	}
@@ -108,6 +104,16 @@ func (r *ProjectSettingsResource) Read(ctx context.Context, req resource.ReadReq
 	data.RetentionDays = types.Int64Value(int64(settings.RetentionDays))
 	data.SlackChannel = types.StringValue(settings.SlackChannel)
 	data.OwnerEmail = types.StringValue(settings.OwnerEmail)
+	if settings.SyncEnabled != nil {
+		data.SyncEnabled = types.BoolValue(*settings.SyncEnabled)
+	} else {
+		data.SyncEnabled = types.BoolNull()
+	}
+	if settings.SyncIntervalMinutes != nil {
+		data.SyncIntervalMinutes = types.Int64Value(int64(*settings.SyncIntervalMinutes))
+	} else {
+		data.SyncIntervalMinutes = types.Int64Null()
+	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
@@ -117,11 +123,7 @@ func (r *ProjectSettingsResource) Update(ctx context.Context, req resource.Updat
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	if _, err := r.client.UpdateProjectSettings(plan.ProjectID.ValueString(), &mazevault.UpdateProjectSettingsRequest{
-		RetentionDays: int(plan.RetentionDays.ValueInt64()),
-		SlackChannel:  plan.SlackChannel.ValueString(),
-		OwnerEmail:    plan.OwnerEmail.ValueString(),
-	}); err != nil {
+	if _, err := r.client.UpdateProjectSettings(plan.ProjectID.ValueString(), projectSettingsRequest(plan)); err != nil {
 		resp.Diagnostics.AddError("Update Project Settings Error", fmt.Sprintf("Unable to update project settings: %s", err))
 		return
 	}
@@ -130,4 +132,24 @@ func (r *ProjectSettingsResource) Update(ctx context.Context, req resource.Updat
 
 func (r *ProjectSettingsResource) Delete(_ context.Context, _ resource.DeleteRequest, _ *resource.DeleteResponse) {
 	// Settings cannot be deleted, only reset. Removing from Terraform state only.
+}
+
+// projectSettingsRequest converts the Terraform model to the SDK request type.
+// Optional bool/int fields use pointer semantics so that omitempty in the SDK
+// struct does not send zero-values for fields the operator did not set.
+func projectSettingsRequest(m ProjectSettingsModel) *mazevault.UpdateProjectSettingsRequest {
+	r := &mazevault.UpdateProjectSettingsRequest{
+		RetentionDays: int(m.RetentionDays.ValueInt64()),
+		SlackChannel:  m.SlackChannel.ValueString(),
+		OwnerEmail:    m.OwnerEmail.ValueString(),
+	}
+	if !m.SyncEnabled.IsNull() && !m.SyncEnabled.IsUnknown() {
+		v := m.SyncEnabled.ValueBool()
+		r.SyncEnabled = &v
+	}
+	if !m.SyncIntervalMinutes.IsNull() && !m.SyncIntervalMinutes.IsUnknown() {
+		v := int(m.SyncIntervalMinutes.ValueInt64())
+		r.SyncIntervalMinutes = &v
+	}
+	return r
 }

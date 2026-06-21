@@ -2,8 +2,11 @@ package provider
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
+	"net/http"
 	"os"
+	"time"
 
 	mazevault "github.com/MazeVault/maze-core/sdks/go"
 	"github.com/MazeVault/maze-core/terraform-provider-mazevault/internal/datasources"
@@ -83,9 +86,6 @@ func (p *MazeVaultProvider) Configure(ctx context.Context, req provider.Configur
 		return
 	}
 
-	// Configuration values are now available.
-	// if data.Endpoint.IsNull() { /* ... */ }
-
 	serverURL := os.Getenv("MAZEVAULT_SERVER_URL")
 	if !data.ServerURL.IsNull() {
 		serverURL = data.ServerURL.ValueString()
@@ -96,6 +96,7 @@ func (p *MazeVaultProvider) Configure(ctx context.Context, req provider.Configur
 			"Missing Server URL",
 			"The server_url configuration or MAZEVAULT_SERVER_URL environment variable is required",
 		)
+		return
 	}
 
 	apiToken := os.Getenv("MAZEVAULT_API_TOKEN")
@@ -118,15 +119,56 @@ func (p *MazeVaultProvider) Configure(ctx context.Context, req provider.Configur
 			"Missing Authentication",
 			"Either api_token or client_id/client_secret must be provided via configuration or environment variables",
 		)
+		return
 	}
 
-	// Create a new MazeVault SDK client
+	// Resolve timeout — default matches SDK default (1 minute).
+	timeoutDuration := time.Minute
+	if !data.Timeout.IsNull() && data.Timeout.ValueString() != "" {
+		d, err := time.ParseDuration(data.Timeout.ValueString())
+		if err != nil {
+			resp.Diagnostics.AddError(
+				"Invalid Timeout",
+				fmt.Sprintf("Cannot parse timeout %q as a Go duration (e.g. \"30s\", \"2m\"): %s", data.Timeout.ValueString(), err),
+			)
+			return
+		}
+		timeoutDuration = d
+	}
+
+	// Build HTTP transport — honour skip_tls_verify for dev/test environments.
+	// Clone DefaultTransport so all defaults (proxy-from-env, keepalive, HTTP/2
+	// upgrade, dial/idle timeouts) are preserved; only InsecureSkipVerify is
+	// toggled. #nosec G402 — intentionally user-controlled; only activated when
+	// the operator explicitly sets skip_tls_verify = true.
+	var transport http.RoundTripper = http.DefaultTransport
+	if !data.SkipTLS.IsNull() && data.SkipTLS.ValueBool() {
+		if dt, ok := http.DefaultTransport.(*http.Transport); ok {
+			cloned := dt.Clone()
+			if cloned.TLSClientConfig == nil {
+				cloned.TLSClientConfig = &tls.Config{} //nolint:gosec
+			}
+			cloned.TLSClientConfig.InsecureSkipVerify = true //nolint:gosec
+			transport = cloned
+		} else {
+			// Fallback: DefaultTransport has been replaced globally (e.g. in tests).
+			transport = &http.Transport{
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+			}
+		}
+	}
+
+	// Create a new MazeVault SDK client with the resolved HTTP settings.
 	c := mazevault.NewClient(serverURL)
+	c.HTTPClient = &http.Client{
+		Timeout:   timeoutDuration,
+		Transport: transport,
+	}
 
 	if apiToken != "" {
 		c.SetToken(apiToken)
 	} else if clientID != "" && clientSecret != "" {
-		// Exchange client credentials for a bearer token
+		// Exchange client credentials (OAuth2 client_credentials grant) for a bearer token.
 		if err := c.ClientCredentials(clientID, clientSecret); err != nil {
 			resp.Diagnostics.AddError("Authentication Error",
 				fmt.Sprintf("client_credentials grant failed: %s", err))
@@ -134,7 +176,7 @@ func (p *MazeVaultProvider) Configure(ctx context.Context, req provider.Configur
 		}
 	}
 
-	// Pass the unified SDK client to all resources and data sources.
+	// Pass the configured SDK client to all resources and data sources.
 	resp.ResourceData = c
 	resp.DataSourceData = c
 }

@@ -84,9 +84,38 @@ func (d *SecretDataSource) Read(ctx context.Context, req datasource.ReadRequest,
 	}
 	var secret *mazevault.Secret
 	var err error
-	if !data.ID.IsNull() && data.ID.ValueString() != "" {
+	// Detect unknown id early: ValueString() returns "" for unknown values, which
+	// would silently fall through to the project_id/key branch and produce a
+	// confusing "Missing project_id" error instead of a clear diagnostic.
+	if !data.ID.IsNull() && data.ID.IsUnknown() {
+		if data.ProjectID.IsNull() || data.ProjectID.ValueString() == "" ||
+			data.Key.IsNull() || data.Key.ValueString() == "" {
+			resp.Diagnostics.AddError(
+				"Unknown id",
+				"The id attribute is not yet known (it references an unapplied value). "+
+					"Either provide a known id, or set both project_id and key to look up a secret.",
+			)
+			return
+		}
+		// project_id + key are available — fall through to that lookup below.
+	}
+	if !data.ID.IsNull() && !data.ID.IsUnknown() && data.ID.ValueString() != "" {
 		secret, err = d.client.GetSecretByID(data.ID.ValueString())
 	} else {
+		if data.ProjectID.IsNull() || data.ProjectID.ValueString() == "" {
+			resp.Diagnostics.AddError(
+				"Missing project_id",
+				"Either id or both project_id and key must be set to look up a secret.",
+			)
+			return
+		}
+		if data.Key.IsNull() || data.Key.ValueString() == "" {
+			resp.Diagnostics.AddError(
+				"Missing key",
+				"Either id or both project_id and key must be set to look up a secret.",
+			)
+			return
+		}
 		secret, err = d.client.GetSecret(data.ProjectID.ValueString(), data.Key.ValueString())
 	}
 	if err != nil {
