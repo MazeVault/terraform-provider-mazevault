@@ -115,6 +115,10 @@ type PostRotationActionWF struct {
 	Config    map[string]string `json:"config,omitempty"`
 	Order     int               `json:"order,omitempty"`
 	OnFailure string            `json:"on_failure,omitempty"`
+	// GatewayID pins this action to a specific gateway instead of using environment-based routing.
+	GatewayID string `json:"gateway_id,omitempty"`
+	// TargetEnvironment overrides the environment context used when resolving the target gateway.
+	TargetEnvironment string `json:"target_environment,omitempty"`
 }
 
 // CreateRotationWorkflowRequest creates a rotation workflow via the rotation/configs endpoint.

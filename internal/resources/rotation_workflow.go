@@ -32,10 +32,12 @@ type RotationWorkflowResourceModel struct {
 }
 
 type PostRotationActionModel struct {
-	Type      types.String `tfsdk:"type"`
-	Config    types.Map    `tfsdk:"config"`
-	Order     types.Int64  `tfsdk:"order"`
-	OnFailure types.String `tfsdk:"on_failure"`
+	Type              types.String `tfsdk:"type"`
+	Config            types.Map    `tfsdk:"config"`
+	Order             types.Int64  `tfsdk:"order"`
+	OnFailure         types.String `tfsdk:"on_failure"`
+	GatewayID         types.String `tfsdk:"gateway_id"`
+	TargetEnvironment types.String `tfsdk:"target_environment"`
 }
 
 func NewRotationWorkflowResource() resource.Resource {
@@ -99,7 +101,7 @@ func (r *RotationWorkflowResource) Schema(_ context.Context, _ resource.SchemaRe
 					Attributes: map[string]schema.Attribute{
 						"type": schema.StringAttribute{
 							Required:    true,
-							Description: "Type of action (e.g., iis_recycle, api_notification).",
+							Description: "Type of action. Supported values: spring_actuator_refresh, webhook, agent_command, shell_script, azure_keyvault, kubernetes_secret, iis_recycle.",
 						},
 						"config": schema.MapAttribute{
 							Optional:    true,
@@ -113,6 +115,14 @@ func (r *RotationWorkflowResource) Schema(_ context.Context, _ resource.SchemaRe
 						"on_failure": schema.StringAttribute{
 							Optional:    true,
 							Description: "Behavior on failure (continue, rollback, notify).",
+						},
+						"gateway_id": schema.StringAttribute{
+							Optional:    true,
+							Description: "Pin this action to a specific gateway ID instead of using environment-based routing. Takes precedence over target_environment.",
+						},
+						"target_environment": schema.StringAttribute{
+							Optional:    true,
+							Description: "Override the environment context used when resolving which gateway executes this action.",
 						},
 					},
 				},
@@ -169,10 +179,12 @@ func (r *RotationWorkflowResource) Create(ctx context.Context, req resource.Crea
 			return
 		}
 		createReq.PostRotationActions = append(createReq.PostRotationActions, mazevault.PostRotationActionWF{
-			Type:      action.Type.ValueString(),
-			Config:    cfg,
-			Order:     int(action.Order.ValueInt64()),
-			OnFailure: action.OnFailure.ValueString(),
+			Type:              action.Type.ValueString(),
+			Config:            cfg,
+			Order:             int(action.Order.ValueInt64()),
+			OnFailure:         action.OnFailure.ValueString(),
+			GatewayID:         action.GatewayID.ValueString(),
+			TargetEnvironment: action.TargetEnvironment.ValueString(),
 		})
 	}
 
@@ -250,10 +262,12 @@ func (r *RotationWorkflowResource) Update(ctx context.Context, req resource.Upda
 			return
 		}
 		updateReq.PostRotationActions = append(updateReq.PostRotationActions, mazevault.PostRotationActionWF{
-			Type:      action.Type.ValueString(),
-			Config:    cfg,
-			Order:     int(action.Order.ValueInt64()),
-			OnFailure: action.OnFailure.ValueString(),
+			Type:              action.Type.ValueString(),
+			Config:            cfg,
+			Order:             int(action.Order.ValueInt64()),
+			OnFailure:         action.OnFailure.ValueString(),
+			GatewayID:         action.GatewayID.ValueString(),
+			TargetEnvironment: action.TargetEnvironment.ValueString(),
 		})
 	}
 

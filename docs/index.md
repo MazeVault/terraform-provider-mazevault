@@ -94,6 +94,8 @@ resource "mazevault_secret" "db_password" {
 - [mazevault_approval_policy](resources/approval_policy.md)
 - [mazevault_rotation_config](resources/rotation_config.md)
 - [mazevault_rotation_workflow](resources/rotation_workflow.md)
+- [mazevault_rotation_template](resources/rotation_template.md)
+- [mazevault_sync_rule](resources/sync_rule.md)
 - [mazevault_deployment](resources/deployment.md)
 
 ## Data Sources

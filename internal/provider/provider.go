@@ -219,7 +219,10 @@ func (p *MazeVaultProvider) Resources(ctx context.Context) []func() resource.Res
 		// Rotation & Deployments
 		resources.NewRotationConfigResource,
 		resources.NewRotationWorkflowResource,
+		resources.NewRotationTemplateResource,
 		resources.NewDeploymentResource,
+		// Sync Rules
+		resources.NewSyncRuleResource,
 	}
 }
 
