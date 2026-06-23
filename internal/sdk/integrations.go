@@ -28,12 +28,13 @@ func (c *Client) ListIntegrations(projectID string) ([]Integration, error) {
 }
 
 // CreateIntegration creates an integration
-func (c *Client) CreateIntegration(projectID, name, typ, provider string, config map[string]interface{}) (*Integration, error) {
+func (c *Client) CreateIntegration(projectID, name, typ, provider, environment string, config map[string]interface{}) (*Integration, error) {
 	body := map[string]interface{}{
-		"name":     name,
-		"type":     typ,
-		"provider": provider,
-		"config":   config,
+		"name":        name,
+		"type":        typ,
+		"provider":    provider,
+		"environment": environment,
+		"config":      config,
 	}
 	req, err := c.newRequest(http.MethodPost, "/api/v1/projects/"+projectID+"/integrations", body)
 	if err != nil {
@@ -48,7 +49,7 @@ func (c *Client) CreateIntegration(projectID, name, typ, provider string, config
 
 // DeleteIntegration removes an integration
 func (c *Client) DeleteIntegration(projectID, integrationID string) error {
-	req, err := c.newRequest(http.MethodDelete, "/api/v1/projects/"+projectID+"/integrations/"+integrationID, nil)
+	req, err := c.newRequest(http.MethodDelete, "/api/v1/projects/integrations/"+integrationID, nil)
 	if err != nil {
 		return err
 	}

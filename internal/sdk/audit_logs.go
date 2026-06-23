@@ -12,11 +12,11 @@ func (c *Client) ListAuditLogs(limit, offset int) (*ListAuditLogsResponse, error
 	if err != nil {
 		return nil, err
 	}
-	var resp ListAuditLogsResponse
-	if err := c.Do(r, &resp); err != nil {
+	var logs []AuditLog
+	if err := c.Do(r, &logs); err != nil {
 		return nil, err
 	}
-	return &resp, nil
+	return &ListAuditLogsResponse{Logs: logs, Total: len(logs)}, nil
 }
 
 // ListProjectAuditLogs retrieves audit log entries for a specific project
@@ -29,11 +29,11 @@ func (c *Client) ListProjectAuditLogs(projectID string, limit, offset int) (*Lis
 	if err != nil {
 		return nil, err
 	}
-	var resp ListAuditLogsResponse
-	if err := c.Do(r, &resp); err != nil {
+	var logs []AuditLog
+	if err := c.Do(r, &logs); err != nil {
 		return nil, err
 	}
-	return &resp, nil
+	return &ListAuditLogsResponse{Logs: logs, Total: len(logs)}, nil
 }
 
 // ListRotationExecutions retrieves rotation execution history
@@ -49,9 +49,9 @@ func (c *Client) ListRotationExecutions() ([]RotationExecution, error) {
 	return resp, nil
 }
 
-// GetRenewalQueue retrieves the certificate renewal queue
-func (c *Client) GetRenewalQueue() ([]RenewalQueueItem, error) {
-	r, err := c.newRequest(http.MethodGet, "/api/v1/renewal-queue/", nil)
+// GetRenewalQueue retrieves the certificate renewal queue for an organization
+func (c *Client) GetRenewalQueue(organizationID string) ([]RenewalQueueItem, error) {
+	r, err := c.newRequest(http.MethodGet, "/api/v1/renewal-queue/?organization_id="+organizationID, nil)
 	if err != nil {
 		return nil, err
 	}

@@ -178,8 +178,10 @@ type RenewalPolicy struct {
 	Name             string    `json:"name"`
 	Description      string    `json:"description"`
 	LeadDays         int       `json:"lead_days"`
+	KeyReuseEnabled  bool      `json:"key_reuse_enabled"`
 	AutoApprove      bool      `json:"auto_approve"`
-	NotifyDaysBefore []int     `json:"notify_days_before"`
+	NotifyEmails     string    `json:"notify_emails"`
+	ValidityDuration int       `json:"validity_duration"`
 	CreatedAt        time.Time `json:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at"`
 }
@@ -189,8 +191,10 @@ type CreateRenewalPolicyRequest struct {
 	Name             string `json:"name"`
 	Description      string `json:"description,omitempty"`
 	LeadDays         int    `json:"lead_days"`
+	KeyReuseEnabled  bool   `json:"key_reuse_enabled,omitempty"`
 	AutoApprove      bool   `json:"auto_approve,omitempty"`
-	NotifyDaysBefore []int  `json:"notify_days_before,omitempty"`
+	NotifyEmails     string `json:"notify_emails,omitempty"`
+	ValidityDuration int    `json:"validity_duration,omitempty"`
 }
 
 // IdentityProvider represents a SAML/LDAP/OIDC/SCIM identity provider

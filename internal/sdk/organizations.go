@@ -7,7 +7,7 @@ import (
 
 // ListOrganizations retrieves all organizations
 func (c *Client) ListOrganizations() ([]Organization, error) {
-	req, err := c.newRequest(http.MethodGet, "/organizations", nil)
+	req, err := c.newRequest(http.MethodGet, "/api/v1/organizations", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -22,7 +22,7 @@ func (c *Client) ListOrganizations() ([]Organization, error) {
 
 // GetOrganization retrieves an organization by ID
 func (c *Client) GetOrganization(id string) (*Organization, error) {
-	path := fmt.Sprintf("/organizations/%s", id)
+	path := fmt.Sprintf("/api/v1/organizations/%s", id)
 	req, err := c.newRequest(http.MethodGet, path, nil)
 	if err != nil {
 		return nil, err
@@ -42,7 +42,7 @@ func (c *Client) CreateOrganization(name string) (*Organization, error) {
 		Name: name,
 	}
 
-	req, err := c.newRequest(http.MethodPost, "/organizations", reqBody)
+	req, err := c.newRequest(http.MethodPost, "/api/v1/organizations", reqBody)
 	if err != nil {
 		return nil, err
 	}
@@ -61,7 +61,7 @@ func (c *Client) UpdateOrganization(id, name string) (*Organization, error) {
 		Name: name,
 	}
 
-	path := fmt.Sprintf("/organizations/%s", id)
+	path := fmt.Sprintf("/api/v1/organizations/%s", id)
 	req, err := c.newRequest(http.MethodPut, path, reqBody)
 	if err != nil {
 		return nil, err
@@ -77,7 +77,7 @@ func (c *Client) UpdateOrganization(id, name string) (*Organization, error) {
 
 // DeleteOrganization deletes an organization
 func (c *Client) DeleteOrganization(id string) error {
-	path := fmt.Sprintf("/organizations/%s", id)
+	path := fmt.Sprintf("/api/v1/organizations/%s", id)
 	req, err := c.newRequest(http.MethodDelete, path, nil)
 	if err != nil {
 		return err

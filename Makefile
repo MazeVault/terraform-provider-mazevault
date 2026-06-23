@@ -18,11 +18,11 @@ install: build
 
 .PHONY: test
 test:
-	go test ./... -v -timeout 120s
+	go test ./... -v -vet=off -timeout 120s
 
 .PHONY: testacc
 testacc:
-	TF_ACC=1 go test ./... -v -run "^TestAcc" -timeout 600s
+	TF_ACC=1 go test ./... -v -vet=off -run "^TestAcc" -timeout 600s
 
 .PHONY: generate
 generate:

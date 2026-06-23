@@ -25,7 +25,7 @@ type IntegrationItem struct {
 	ID       types.String `tfsdk:"id"`
 	Name     types.String `tfsdk:"name"`
 	Type     types.String `tfsdk:"type"`
-	Provider types.String `tfsdk:"provider"`
+	Provider types.String `tfsdk:"provider_name"`
 }
 
 func (d *IntegrationsDataSource) Metadata(_ context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
@@ -41,10 +41,10 @@ func (d *IntegrationsDataSource) Schema(_ context.Context, _ datasource.SchemaRe
 				Computed: true,
 				NestedObject: schema.NestedAttributeObject{
 					Attributes: map[string]schema.Attribute{
-						"id":       schema.StringAttribute{Computed: true},
-						"name":     schema.StringAttribute{Computed: true},
-						"type":     schema.StringAttribute{Computed: true},
-						"provider": schema.StringAttribute{Computed: true},
+						"id":            schema.StringAttribute{Computed: true},
+						"name":          schema.StringAttribute{Computed: true},
+						"type":          schema.StringAttribute{Computed: true},
+						"provider_name": schema.StringAttribute{Computed: true},
 					},
 				},
 			},

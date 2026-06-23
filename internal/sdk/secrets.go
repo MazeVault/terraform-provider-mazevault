@@ -7,7 +7,7 @@ import (
 
 // GetSecret retrieves a secret by key and project ID
 func (c *Client) GetSecret(projectID, key string) (*Secret, error) {
-	path := fmt.Sprintf("/secrets?project_id=%s&key=%s", projectID, key)
+	path := fmt.Sprintf("/api/v1/secrets?project_id=%s&key=%s", projectID, key)
 	req, err := c.newRequest(http.MethodGet, path, nil)
 	if err != nil {
 		return nil, err
@@ -23,7 +23,7 @@ func (c *Client) GetSecret(projectID, key string) (*Secret, error) {
 
 // GetSecretByID retrieves a secret by ID
 func (c *Client) GetSecretByID(id string) (*Secret, error) {
-	path := fmt.Sprintf("/secrets/%s", id)
+	path := fmt.Sprintf("/api/v1/secrets/%s", id)
 	req, err := c.newRequest(http.MethodGet, path, nil)
 	if err != nil {
 		return nil, err
@@ -49,7 +49,7 @@ func (c *Client) CreateSecret(projectID, key, value, environment string, ttlHour
 		Rotation:    rotation,
 	}
 
-	req, err := c.newRequest(http.MethodPost, "/secrets", reqBody)
+	req, err := c.newRequest(http.MethodPost, "/api/v1/secrets", reqBody)
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +74,7 @@ func (c *Client) UpdateSecret(id, value string, ttlHours int, metadata map[strin
 		Metadata: metadata,
 	}
 
-	path := fmt.Sprintf("/secrets/%s", id)
+	path := fmt.Sprintf("/api/v1/secrets/%s", id)
 	req, err := c.newRequest(http.MethodPut, path, reqBody)
 	if err != nil {
 		return nil, err
@@ -90,7 +90,7 @@ func (c *Client) UpdateSecret(id, value string, ttlHours int, metadata map[strin
 
 // DeleteSecret deletes a secret by ID
 func (c *Client) DeleteSecret(id string) error {
-	path := fmt.Sprintf("/secrets/%s", id)
+	path := fmt.Sprintf("/api/v1/secrets/%s", id)
 	req, err := c.newRequest(http.MethodDelete, path, nil)
 	if err != nil {
 		return err

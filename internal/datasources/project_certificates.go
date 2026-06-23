@@ -86,7 +86,7 @@ func (d *ProjectCertificatesDataSource) Read(ctx context.Context, req datasource
 		return
 	}
 
-	var certModels []CertificateModel
+	certModels := make([]CertificateModel, 0, len(certs))
 	for _, cert := range certs {
 		certModels = append(certModels, CertificateModel{
 			ID:           types.StringValue(cert.ID),

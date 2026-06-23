@@ -8,7 +8,6 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -97,17 +96,20 @@ func (r *SecretResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 			"version": schema.Int64Attribute{
 				Description: "Current version",
 				Computed:    true,
-				PlanModifiers: []planmodifier.Int64{
-					int64planmodifier.UseStateForUnknown(),
-				},
 			},
 			"status": schema.StringAttribute{
 				Description: "Secret status",
 				Computed:    true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
 			},
 			"created_at": schema.StringAttribute{
 				Description: "Creation timestamp",
 				Computed:    true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
 			},
 			"rotation": schema.SingleNestedAttribute{
 				Description: "Rotation configuration",
@@ -208,17 +210,21 @@ func (r *SecretResource) Create(ctx context.Context, req resource.CreateRequest,
 	}
 
 	plan.ID = types.StringValue(secret.ID)
-	// Note: CreateSecretResponse might not have all fields, but SDK CreateSecret returns CreateSecretResponse which has ID and Status.
-	// Wait, SDK CreateSecret returns *CreateSecretResponse.
-	// I need to check what CreateSecretResponse has.
-	// It has ID and Status.
-	// But I need Version and CreatedAt.
-	// The API returns {id, status, version}.
-	// I should update CreateSecretResponse in SDK to include Version.
-	// And maybe fetch the secret to get CreatedAt? Or just leave it computed.
-
 	plan.Status = types.StringValue(secret.Status)
-	// plan.Version = types.Int64Value(int64(secret.Version)) // Need to add Version to response struct
+	plan.Version = types.Int64Value(int64(secret.Version))
+
+	// The create endpoint does not return created_at; fetch the full secret.
+	full, err := r.client.GetSecretByID(secret.ID)
+	if err == nil && full != nil {
+		plan.CreatedAt = types.StringValue(full.CreatedAt.String())
+		if plan.Version.IsNull() || plan.Version.IsUnknown() {
+			plan.Version = types.Int64Value(int64(full.Version))
+		}
+	} else {
+		// Fallback: set null so Terraform doesn't produce a permanent diff.
+		// UseStateForUnknown preserves the previous known value on subsequent reads.
+		plan.CreatedAt = types.StringNull()
+	}
 
 	diags = resp.State.Set(ctx, plan)
 	resp.Diagnostics.Append(diags...)
@@ -263,6 +269,11 @@ func (r *SecretResource) Read(ctx context.Context, req resource.ReadRequest, res
 	state.Version = types.Int64Value(int64(secret.Version))
 	state.Status = types.StringValue(secret.Status)
 	state.CreatedAt = types.StringValue(secret.CreatedAt.String())
+	if secret.TTLHours > 0 {
+		state.TTLHours = types.Int64Value(int64(secret.TTLHours))
+	} else {
+		state.TTLHours = types.Int64Null()
+	}
 
 	diags = resp.State.Set(ctx, &state)
 	resp.Diagnostics.Append(diags...)

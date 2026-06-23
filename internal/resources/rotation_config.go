@@ -7,6 +7,8 @@ import (
 	mazevault "github.com/MazeVault/maze-core/sdks/go"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
@@ -26,11 +28,8 @@ type RotationConfigResourceModel struct {
 	Environment      types.String `tfsdk:"environment"`
 	TTLHours         types.Int64  `tfsdk:"ttl_hours"`
 	RotationStrategy types.String `tfsdk:"rotation_strategy"`
-	// N-new fields: target environment scoping, project scope, and grace period
-	TargetEnvironment  types.String `tfsdk:"target_environment"`
-	Scope              types.String `tfsdk:"scope"`
-	GracePeriodMinutes types.Int64  `tfsdk:"grace_period_minutes"`
-	// Steps and Notifications would be nested blocks
+	// target_environment is round-tripped from the backend GET response.
+	TargetEnvironment types.String `tfsdk:"target_environment"`
 }
 
 func (r *RotationConfigResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -41,7 +40,8 @@ func (r *RotationConfigResource) Schema(ctx context.Context, req resource.Schema
 	resp.Schema = schema.Schema{
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
-				Computed: true,
+				Computed:      true,
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"secret_id": schema.StringAttribute{
 				Required: true,
@@ -55,22 +55,10 @@ func (r *RotationConfigResource) Schema(ctx context.Context, req resource.Schema
 			"rotation_strategy": schema.StringAttribute{
 				Optional: true,
 			},
-			"workflow_steps_json": schema.StringAttribute{
-				Optional:    true,
-				Description: "JSON configuration for rotation steps, including reconciler inputs",
-			},
-			// Fáze N new attributes
 			"target_environment": schema.StringAttribute{
 				Optional:    true,
+				Computed:    true,
 				Description: "Override the target environment for secret write-back. Defaults to the rotation config's own environment.",
-			},
-			"scope": schema.StringAttribute{
-				Optional:    true,
-				Description: "Scope of this rotation config: 'organization' or 'project'. Defaults to 'project'.",
-			},
-			"grace_period_minutes": schema.Int64Attribute{
-				Optional:    true,
-				Description: "Number of minutes the old secret/credential remains active after rotation. 0 means hard cutover (default).",
 			},
 		},
 	}
@@ -108,6 +96,14 @@ func (r *RotationConfigResource) Create(ctx context.Context, req resource.Create
 	}
 
 	data.ID = types.StringValue(cfg.ID)
+	// Ensure Optional+Computed fields have a known value after create.
+	if data.TargetEnvironment.IsNull() || data.TargetEnvironment.IsUnknown() {
+		if cfg.TargetEnvironment != "" {
+			data.TargetEnvironment = types.StringValue(cfg.TargetEnvironment)
+		} else {
+			data.TargetEnvironment = types.StringValue("")
+		}
+	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
@@ -128,8 +124,11 @@ func (r *RotationConfigResource) Read(ctx context.Context, req resource.ReadRequ
 		return
 	}
 
+	data.ID = types.StringValue(cfg.ID)
 	data.SecretID = types.StringValue(cfg.SecretID)
-	data.TargetEnvironment = types.StringValue(cfg.TargetEnvironment)
+	if cfg.TargetEnvironment != "" {
+		data.TargetEnvironment = types.StringValue(cfg.TargetEnvironment)
+	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
@@ -152,7 +151,9 @@ func (r *RotationConfigResource) Update(ctx context.Context, req resource.Update
 	}
 
 	data.SecretID = types.StringValue(cfg.SecretID)
-	data.TargetEnvironment = types.StringValue(cfg.TargetEnvironment)
+	if cfg.TargetEnvironment != "" {
+		data.TargetEnvironment = types.StringValue(cfg.TargetEnvironment)
+	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 

@@ -3,6 +3,8 @@ package resources
 import (
 	"context"
 	"fmt"
+	"regexp"
+	"strings"
 
 	mazevault "github.com/MazeVault/maze-core/sdks/go"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -19,6 +21,7 @@ func NewEnvironmentResource() resource.Resource { return &EnvironmentResource{} 
 type EnvironmentResource struct{ client *mazevault.Client }
 
 type EnvironmentModel struct {
+	ID                     types.String `tfsdk:"id"`
 	OrganizationID         types.String `tfsdk:"organization_id"`
 	Name                   types.String `tfsdk:"name"`
 	Slug                   types.String `tfsdk:"slug"`
@@ -34,6 +37,11 @@ func (r *EnvironmentResource) Schema(_ context.Context, _ resource.SchemaRequest
 	resp.Schema = schema.Schema{
 		MarkdownDescription: "Manages an environment tier within a MazeVault organization (e.g. `production`, `staging`, `development`).",
 		Attributes: map[string]schema.Attribute{
+			"id": schema.StringAttribute{
+				Computed:            true,
+				MarkdownDescription: "Unique identifier of the environment.",
+				PlanModifiers:       []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
+			},
 			"organization_id": schema.StringAttribute{
 				Required:            true,
 				MarkdownDescription: "ID of the organization that owns this environment.",
@@ -46,14 +54,17 @@ func (r *EnvironmentResource) Schema(_ context.Context, _ resource.SchemaRequest
 			},
 			"slug": schema.StringAttribute{
 				Optional:            true,
+				Computed:            true,
 				MarkdownDescription: "URL-safe slug for the environment. Derived from name if omitted.",
 			},
 			"is_production": schema.BoolAttribute{
 				Optional:            true,
+				Computed:            true,
 				MarkdownDescription: "Whether this environment is considered production (affects rotation policies and alerting).",
 			},
 			"incident_auto_escalation": schema.BoolAttribute{
 				Optional:            true,
+				Computed:            true,
 				MarkdownDescription: "Whether incidents in this environment are automatically escalated.",
 			},
 		},
@@ -79,16 +90,38 @@ func (r *EnvironmentResource) Create(ctx context.Context, req resource.CreateReq
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	_, err := r.client.AddEnvironment(data.OrganizationID.ValueString(), &mazevault.CreateEnvironmentRequest{
+	env, err := r.client.AddEnvironment(data.OrganizationID.ValueString(), &mazevault.CreateEnvironmentRequest{
 		Name:                   data.Name.ValueString(),
-		Slug:                   data.Slug.ValueString(),
+		Slug:                   deriveSlug(data.Slug.ValueString(), data.Name.ValueString()),
 		IsProduction:           data.IsProduction.ValueBool(),
 		IncidentAutoEscalation: data.IncidentAutoEscalation.ValueBool(),
 	})
 	if err != nil {
+		// If the environment already exists (backend enforces unique slug), adopt it.
+		envs, listErr := r.client.ListEnvironments(data.OrganizationID.ValueString())
+		if listErr != nil {
+			resp.Diagnostics.AddError("Create Environment Error", fmt.Sprintf("Unable to create environment: %s", err))
+			return
+		}
+		wantName := data.Name.ValueString()
+		wantSlug := deriveSlug(data.Slug.ValueString(), wantName)
+		for _, e := range envs {
+			if e.Name == wantName || e.Slug == wantSlug {
+				data.ID = types.StringValue(e.ID)
+				data.Slug = types.StringValue(e.Slug)
+				data.IsProduction = types.BoolValue(e.IsProduction)
+				data.IncidentAutoEscalation = types.BoolValue(e.IncidentAutoEscalation)
+				resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+				return
+			}
+		}
 		resp.Diagnostics.AddError("Create Environment Error", fmt.Sprintf("Unable to create environment: %s", err))
 		return
 	}
+	data.ID = types.StringValue(env.ID)
+	data.Slug = types.StringValue(env.Slug)
+	data.IsProduction = types.BoolValue(env.IsProduction)
+	data.IncidentAutoEscalation = types.BoolValue(env.IncidentAutoEscalation)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
@@ -105,6 +138,7 @@ func (r *EnvironmentResource) Read(ctx context.Context, req resource.ReadRequest
 	}
 	for _, e := range envs {
 		if e.Name == data.Name.ValueString() {
+			data.ID = types.StringValue(e.ID)
 			data.Slug = types.StringValue(e.Slug)
 			data.IsProduction = types.BoolValue(e.IsProduction)
 			data.IncidentAutoEscalation = types.BoolValue(e.IncidentAutoEscalation)
@@ -122,12 +156,13 @@ func (r *EnvironmentResource) Update(ctx context.Context, req resource.UpdateReq
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	if _, err := r.client.UpdateEnvironment(state.OrganizationID.ValueString(), state.Name.ValueString(), &mazevault.UpdateEnvironmentRequest{
+	if _, err := r.client.UpdateEnvironment(state.OrganizationID.ValueString(), state.ID.ValueString(), &mazevault.UpdateEnvironmentRequest{
 		Name: plan.Name.ValueString(),
 	}); err != nil {
 		resp.Diagnostics.AddError("Update Environment Error", fmt.Sprintf("Unable to update environment: %s", err))
 		return
 	}
+	plan.ID = state.ID
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -137,7 +172,17 @@ func (r *EnvironmentResource) Delete(ctx context.Context, req resource.DeleteReq
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	if err := r.client.RemoveEnvironment(data.OrganizationID.ValueString(), data.Name.ValueString()); err != nil {
+	if err := r.client.RemoveEnvironment(data.OrganizationID.ValueString(), data.ID.ValueString()); err != nil {
 		resp.Diagnostics.AddError("Delete Environment Error", fmt.Sprintf("Unable to delete environment: %s", err))
 	}
+}
+
+// deriveSlug returns slug if non-empty, otherwise derives one from name by
+// lowercasing and replacing non-alphanumeric characters with hyphens.
+func deriveSlug(slug, name string) string {
+	if slug != "" {
+		return slug
+	}
+	re := regexp.MustCompile(`[^a-z0-9]+`)
+	return strings.Trim(re.ReplaceAllString(strings.ToLower(name), "-"), "-")
 }

@@ -64,11 +64,18 @@ func (r *ProjectResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 			},
 			"environment": schema.StringAttribute{
 				Description: "Environment (dev/staging/prod)",
-				Required:    true,
+				Optional:    true,
+				Computed:    true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
 			},
 			"created_at": schema.StringAttribute{
 				Description: "Creation timestamp",
 				Computed:    true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
 			},
 		},
 	}
@@ -146,7 +153,11 @@ func (r *ProjectResource) Read(ctx context.Context, req resource.ReadRequest, re
 
 	state.OrganizationID = types.StringValue(project.OrganizationID)
 	state.Name = types.StringValue(project.Name)
-	state.Environment = types.StringValue(project.Environment)
+	// Only update environment if the API returns a non-empty value
+	// (the backend does not persist environment as a top-level field).
+	if project.Environment != "" {
+		state.Environment = types.StringValue(project.Environment)
+	}
 	state.CreatedAt = types.StringValue(project.CreatedAt.String())
 
 	diags = resp.State.Set(ctx, &state)
@@ -162,7 +173,7 @@ func (r *ProjectResource) Update(ctx context.Context, req resource.UpdateRequest
 		return
 	}
 
-	_, err := r.client.UpdateProject(
+	updated, err := r.client.UpdateProject(
 		plan.ID.ValueString(),
 		plan.Name.ValueString(),
 		plan.Environment.ValueString(),
@@ -174,6 +185,10 @@ func (r *ProjectResource) Update(ctx context.Context, req resource.UpdateRequest
 			"Could not update project, unexpected error: "+err.Error(),
 		)
 		return
+	}
+
+	if updated != nil && !updated.CreatedAt.IsZero() {
+		plan.CreatedAt = types.StringValue(updated.CreatedAt.String())
 	}
 
 	diags = resp.State.Set(ctx, plan)

@@ -2,11 +2,34 @@ package acc
 
 import (
 	"testing"
+
+	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 )
 
-// Acceptance test scaffold temporarily disabled due to missing dependencies.
-func TestAccIntegrationResource_basic(t *testing.T) {
-	t.Skip("Acceptance tests disabled; missing terraform-plugin-testing dependency")
+// TestAccProvider_configure verifies that the provider block is accepted by
+// the Terraform plugin framework when valid credentials are supplied.
+func TestAccProvider_configure(t *testing.T) {
+	t.Helper()
+	testAccPreCheck(t)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				// Create a minimal organization to exercise the full provider
+				// Configure() path without needing a pre-existing resource ID.
+				Config: providerConfig() + `
+resource "mazevault_organization" "smoke" {
+  name = "tf-acc-smoke-provider"
+}
+`,
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttrSet("mazevault_organization.smoke", "id"),
+					resource.TestCheckResourceAttr("mazevault_organization.smoke", "name", "tf-acc-smoke-provider"),
+				),
+			},
+		},
+	})
 }
 
 /*

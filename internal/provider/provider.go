@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	mazevault "github.com/MazeVault/maze-core/sdks/go"
@@ -159,7 +160,7 @@ func (p *MazeVaultProvider) Configure(ctx context.Context, req provider.Configur
 	}
 
 	// Create a new MazeVault SDK client with the resolved HTTP settings.
-	c := mazevault.NewClient(serverURL)
+	c := mazevault.NewClient(strings.TrimRight(serverURL, "/"))
 	c.HTTPClient = &http.Client{
 		Timeout:   timeoutDuration,
 		Transport: transport,

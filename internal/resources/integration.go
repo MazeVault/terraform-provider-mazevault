@@ -7,6 +7,8 @@ import (
 	mazevault "github.com/MazeVault/maze-core/sdks/go"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
@@ -17,11 +19,12 @@ func NewIntegrationResource() resource.Resource { return &IntegrationResource{} 
 type IntegrationResource struct{ client *mazevault.Client }
 
 type IntegrationModel struct {
-	ID        types.String `tfsdk:"id"`
-	ProjectID types.String `tfsdk:"project_id"`
-	Name      types.String `tfsdk:"name"`
-	Type      types.String `tfsdk:"type"`
-	Provider  types.String `tfsdk:"provider"`
+	ID          types.String `tfsdk:"id"`
+	ProjectID   types.String `tfsdk:"project_id"`
+	Name        types.String `tfsdk:"name"`
+	Type        types.String `tfsdk:"type"`
+	Provider    types.String `tfsdk:"provider_name"`
+	Environment types.String `tfsdk:"environment"`
 	// Azure DevOps config fields
 	AzureOrg             types.String `tfsdk:"azure_org"`
 	AzureProject         types.String `tfsdk:"azure_project"`
@@ -40,11 +43,17 @@ func (r *IntegrationResource) Metadata(_ context.Context, req resource.MetadataR
 func (r *IntegrationResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		Attributes: map[string]schema.Attribute{
-			"id":                      schema.StringAttribute{Computed: true},
-			"project_id":              schema.StringAttribute{Required: true},
-			"name":                    schema.StringAttribute{Required: true},
-			"type":                    schema.StringAttribute{Required: true},
-			"provider":                schema.StringAttribute{Required: true},
+			"id":            schema.StringAttribute{Computed: true},
+			"project_id":    schema.StringAttribute{Required: true},
+			"name":          schema.StringAttribute{Required: true},
+			"type":          schema.StringAttribute{Required: true},
+			"provider_name": schema.StringAttribute{Required: true},
+			"environment": schema.StringAttribute{
+				Required: true,
+				// UpdateIntegration does not send environment in the PUT body;
+				// changes to this field must recreate the resource.
+				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()},
+			},
 			"azure_org":               schema.StringAttribute{Optional: true},
 			"azure_project":           schema.StringAttribute{Optional: true},
 			"azure_pat":               schema.StringAttribute{Optional: true, Sensitive: true},
@@ -89,7 +98,7 @@ func (r *IntegrationResource) Create(ctx context.Context, req resource.CreateReq
 	set("azure_repo", data.AzureRepo)
 	set("azure_branch", data.AzureBranch)
 	set("azure_file_path", data.AzureFilePath)
-	created, err := r.client.CreateIntegration(data.ProjectID.ValueString(), data.Name.ValueString(), data.Type.ValueString(), data.Provider.ValueString(), cfg)
+	created, err := r.client.CreateIntegration(data.ProjectID.ValueString(), data.Name.ValueString(), data.Type.ValueString(), data.Provider.ValueString(), data.Environment.ValueString(), cfg)
 	if err != nil {
 		resp.Diagnostics.AddError("Create Integration Error", err.Error())
 		return

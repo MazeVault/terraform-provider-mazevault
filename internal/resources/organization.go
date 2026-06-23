@@ -3,6 +3,7 @@ package resources
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	mazevault "github.com/MazeVault/maze-core/sdks/go"
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -60,6 +61,9 @@ func (r *OrganizationResource) Schema(_ context.Context, _ resource.SchemaReques
 			"created_at": schema.StringAttribute{
 				Description: "Creation timestamp",
 				Computed:    true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
 			},
 			"updated_at": schema.StringAttribute{
 				Description: "Last update timestamp",
@@ -163,6 +167,7 @@ func (r *OrganizationResource) Update(ctx context.Context, req resource.UpdateRe
 	}
 
 	plan.UpdatedAt = types.StringValue(org.UpdatedAt.String())
+	plan.CreatedAt = types.StringValue(org.CreatedAt.String())
 
 	diags = resp.State.Set(ctx, plan)
 	resp.Diagnostics.Append(diags...)
@@ -179,11 +184,25 @@ func (r *OrganizationResource) Delete(ctx context.Context, req resource.DeleteRe
 
 	err := r.client.DeleteOrganization(state.ID.ValueString())
 	if err != nil {
+		errMsg := err.Error()
+		// Treat expected "no DELETE endpoint" responses as soft removals: the
+		// resource is gone from state but the backend object is preserved.
+		// Any other error is a hard failure that must surface to the operator.
+		if strings.Contains(errMsg, "404") ||
+			strings.Contains(errMsg, "405") ||
+			strings.Contains(errMsg, "not found") ||
+			strings.Contains(errMsg, "not supported") {
+			resp.Diagnostics.AddWarning(
+				"Organization deletion not supported",
+				"The MazeVault backend does not support deleting organizations via API. "+
+					"The resource has been removed from Terraform state. Error: "+errMsg,
+			)
+			return
+		}
 		resp.Diagnostics.AddError(
 			"Error deleting organization",
-			"Could not delete organization, unexpected error: "+err.Error(),
+			"Could not delete organization ID "+state.ID.ValueString()+": "+errMsg,
 		)
-		return
 	}
 }
 

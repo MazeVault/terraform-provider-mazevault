@@ -123,3 +123,5 @@ resource "mazevault_secret" "db_password" {
 - `mazevault_role`: Roles cannot be deleted via API. Destroying this resource removes it from Terraform state only.
 - `mazevault_ca`: Project CAs cannot be deleted once initialized. Destroying removes from state only.
 - `mazevault_deployment`: No API endpoint exists to delete deployments. Destroying removes from state only.
+- `mazevault_integration`: The `environment` argument is required and forces resource replacement on change (`RequiresReplace`). The backend `UpdateIntegration` endpoint does not accept environment changes; the resource must be recreated. Configurations created with older provider versions that omit `environment` must be updated before applying.
+- `mazevault_rotation_config`: The `workflow_steps_json`, `scope`, and `grace_period_minutes` arguments are not accepted by the backend API and have been removed from the provider schema. Remove them from existing configurations.

@@ -18,7 +18,8 @@ func NewRenewalQueueDataSource() datasource.DataSource { return &RenewalQueueDat
 type RenewalQueueDataSource struct{ client *mazevault.Client }
 
 type RenewalQueueDataModel struct {
-	Items []RenewalQueueItemData `tfsdk:"items"`
+	OrganizationID types.String           `tfsdk:"organization_id"`
+	Items          []RenewalQueueItemData `tfsdk:"items"`
 }
 
 type RenewalQueueItemData struct {
@@ -36,6 +37,10 @@ func (d *RenewalQueueDataSource) Schema(_ context.Context, _ datasource.SchemaRe
 	resp.Schema = schema.Schema{
 		MarkdownDescription: "Lists all certificates currently pending renewal in the renewal queue.",
 		Attributes: map[string]schema.Attribute{
+			"organization_id": schema.StringAttribute{
+				Required:            true,
+				MarkdownDescription: "ID of the organization whose renewal queue to read.",
+			},
 			"items": schema.ListNestedAttribute{
 				Computed: true,
 				NestedObject: schema.NestedAttributeObject{
@@ -70,7 +75,7 @@ func (d *RenewalQueueDataSource) Read(ctx context.Context, req datasource.ReadRe
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	queue, err := d.client.GetRenewalQueue()
+	queue, err := d.client.GetRenewalQueue(data.OrganizationID.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError("Read Renewal Queue Error", fmt.Sprintf("Unable to read renewal queue: %s", err))
 		return

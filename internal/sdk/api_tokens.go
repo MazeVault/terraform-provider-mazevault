@@ -13,7 +13,7 @@ func (c *Client) CreateAPIToken(name string, scopes []string, duration string) (
 		Duration: duration,
 	}
 
-	req, err := c.newRequest(http.MethodPost, "/users/tokens", reqBody)
+	req, err := c.newRequest(http.MethodPost, "/api/v1/users/tokens", reqBody)
 	if err != nil {
 		return nil, err
 	}
@@ -28,7 +28,7 @@ func (c *Client) CreateAPIToken(name string, scopes []string, duration string) (
 
 // ListAPITokens lists all API tokens
 func (c *Client) ListAPITokens() ([]APIToken, error) {
-	req, err := c.newRequest(http.MethodGet, "/users/tokens", nil)
+	req, err := c.newRequest(http.MethodGet, "/api/v1/users/tokens", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -43,7 +43,7 @@ func (c *Client) ListAPITokens() ([]APIToken, error) {
 
 // RevokeAPIToken revokes an API token
 func (c *Client) RevokeAPIToken(id string) error {
-	path := fmt.Sprintf("/users/tokens/%s", id)
+	path := fmt.Sprintf("/api/v1/users/tokens/%s", id)
 	req, err := c.newRequest(http.MethodDelete, path, nil)
 	if err != nil {
 		return err

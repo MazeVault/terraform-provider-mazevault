@@ -3,6 +3,7 @@ package resources
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	mazevault "github.com/MazeVault/maze-core/sdks/go"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -98,6 +99,23 @@ func (r *RoleResource) Create(ctx context.Context, req resource.CreateRequest, r
 		Permissions: permissions,
 	})
 	if err != nil {
+		// Only attempt state-adoption if the backend signals a conflict (409).
+		// Any other error (5xx, auth failure, network) is a real failure and must
+		// propagate so the operator is not silently surprised.
+		if strings.Contains(err.Error(), "409") || strings.Contains(err.Error(), "already exists") {
+			all, listErr := r.client.ListRoles()
+			if listErr != nil {
+				resp.Diagnostics.AddError("Create Role Error", fmt.Sprintf("Unable to create role: %s", err))
+				return
+			}
+			for _, existing := range all {
+				if existing.Name == data.Name.ValueString() {
+					data.ID = types.StringValue(existing.ID)
+					resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+					return
+				}
+			}
+		}
 		resp.Diagnostics.AddError("Create Role Error", fmt.Sprintf("Unable to create role: %s", err))
 		return
 	}
@@ -114,21 +132,30 @@ func (r *RoleResource) Read(ctx context.Context, req resource.ReadRequest, resp 
 		return
 	}
 
-	role, err := r.client.GetRole(data.ID.ValueString())
+	// The MazeVault API exposes only GET /rbac/roles (list); there is no
+	// GET /rbac/roles/:id endpoint. We list all roles and find by ID.
+	roles, err := r.client.ListRoles()
 	if err != nil {
-		resp.Diagnostics.AddError("Read Role Error", fmt.Sprintf("Unable to read role: %s", err))
+		resp.Diagnostics.AddError("Read Role Error", fmt.Sprintf("Unable to list roles: %s", err))
 		return
 	}
-	if role == nil {
+	var found *mazevault.Role
+	for i := range roles {
+		if roles[i].ID == data.ID.ValueString() {
+			found = &roles[i]
+			break
+		}
+	}
+	if found == nil {
 		resp.State.RemoveResource(ctx)
 		return
 	}
 
-	data.Name = types.StringValue(role.Name)
-	data.DisplayName = types.StringValue(role.DisplayName)
-	data.Description = types.StringValue(role.Description)
+	data.Name = types.StringValue(found.Name)
+	data.DisplayName = types.StringValue(found.DisplayName)
+	data.Description = types.StringValue(found.Description)
 
-	permsList, diags := types.ListValueFrom(ctx, types.StringType, role.Permissions)
+	permsList, diags := types.ListValueFrom(ctx, types.StringType, found.Permissions)
 	resp.Diagnostics.Append(diags...)
 	data.Permissions = permsList
 
