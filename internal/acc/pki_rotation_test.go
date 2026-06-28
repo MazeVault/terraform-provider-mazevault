@@ -89,16 +89,15 @@ resource "mazevault_secret" "rc_sec" {
   environment = "staging"
 }
 resource "mazevault_rotation_config" "test" {
-  secret_id         = mazevault_secret.rc_sec.id
-  environment       = "staging"
-  ttl_hours         = 720
-  rotation_strategy = "recreate"
+  secret_id              = mazevault_secret.rc_sec.id
+  rotation_interval_days = 30
+  enabled                = true
 }
 `,
 				Check: resource.ComposeTestCheckFunc(
 					resource.TestCheckResourceAttrSet("mazevault_rotation_config.test", "id"),
-					resource.TestCheckResourceAttr("mazevault_rotation_config.test", "ttl_hours", "720"),
-					resource.TestCheckResourceAttr("mazevault_rotation_config.test", "rotation_strategy", "recreate"),
+					resource.TestCheckResourceAttr("mazevault_rotation_config.test", "rotation_interval_days", "30"),
+					resource.TestCheckResourceAttr("mazevault_rotation_config.test", "enabled", "true"),
 				),
 			},
 		},

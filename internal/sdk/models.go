@@ -1,6 +1,27 @@
 package mazevault
 
-import "time"
+import (
+	"errors"
+	"time"
+)
+
+// APIError is a structured HTTP error returned by the MazeVault API.
+// It carries the HTTP status code so callers can distinguish 404 Not Found
+// from transient 5xx / auth errors without parsing error message strings.
+type APIError struct {
+	StatusCode int
+	Message    string
+}
+
+func (e *APIError) Error() string { return e.Message }
+
+// IsNotFoundError reports whether err is an API 404 Not Found error.
+// Use this in Terraform provider Read() to safely remove stale state
+// without accidentally removing resources on transient 5xx or auth errors.
+func IsNotFoundError(err error) bool {
+	var ae *APIError
+	return errors.As(err, &ae) && ae.StatusCode == 404
+}
 
 // LoginRequest represents the login credentials
 type LoginRequest struct {

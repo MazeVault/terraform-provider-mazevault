@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	mazevault "github.com/MazeVault/maze-core/sdks/go"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
@@ -13,6 +14,7 @@ import (
 )
 
 var _ resource.Resource = &ConfigTemplateResource{}
+var _ resource.ResourceWithImportState = &ConfigTemplateResource{}
 
 func NewConfigTemplateResource() resource.Resource { return &ConfigTemplateResource{} }
 
@@ -149,4 +151,17 @@ func (r *ConfigTemplateResource) Delete(ctx context.Context, req resource.Delete
 	if err := r.client.DeleteConfigTemplate(data.OrganizationID.ValueString(), data.ID.ValueString()); err != nil {
 		resp.Diagnostics.AddError("Delete Config Template Error", fmt.Sprintf("Unable to delete config template: %s", err))
 	}
+}
+
+// ImportState implements resource.ResourceWithImportState.
+// Import ID format: "<organization_id>/<resource_id>"
+func (r *ConfigTemplateResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	parts := splitImportID(req.ID)
+	if parts == nil {
+		resp.Diagnostics.AddError("Import Error",
+			"Import ID must be in the format \"<organization_id>/<resource_id>\"")
+		return
+	}
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("organization_id"), parts[0])...)
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), parts[1])...)
 }

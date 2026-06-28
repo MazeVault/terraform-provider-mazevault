@@ -5,12 +5,14 @@ import (
 	"fmt"
 
 	mazevault "github.com/MazeVault/maze-core/sdks/go"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
 var _ resource.Resource = &IntegrationGroupResource{}
+var _ resource.ResourceWithImportState = &IntegrationGroupResource{}
 
 type IntegrationGroupResource struct {
 	client *mazevault.Client
@@ -202,4 +204,9 @@ func (r *IntegrationGroupResource) Delete(ctx context.Context, req resource.Dele
 	if err := r.client.DeleteIntegrationGroup(data.ID.ValueString()); err != nil {
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to delete integration group %s: %s", data.ID.ValueString(), err))
 	}
+}
+
+// ImportState implements resource.ResourceWithImportState.
+func (r *IntegrationGroupResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }

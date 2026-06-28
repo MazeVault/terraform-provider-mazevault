@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	mazevault "github.com/MazeVault/maze-core/sdks/go"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
@@ -15,6 +16,7 @@ import (
 )
 
 var _ resource.Resource = &EnvironmentResource{}
+var _ resource.ResourceWithImportState = &EnvironmentResource{}
 
 func NewEnvironmentResource() resource.Resource { return &EnvironmentResource{} }
 
@@ -185,4 +187,17 @@ func deriveSlug(slug, name string) string {
 	}
 	re := regexp.MustCompile(`[^a-z0-9]+`)
 	return strings.Trim(re.ReplaceAllString(strings.ToLower(name), "-"), "-")
+}
+
+// ImportState implements resource.ResourceWithImportState.
+// Import ID format: "<organization_id>/<environment_name>"
+func (r *EnvironmentResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	parts := splitImportID(req.ID)
+	if parts == nil {
+		resp.Diagnostics.AddError("Import Error",
+			"Import ID must be in the format \"<organization_id>/<environment_name>\"")
+		return
+	}
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("organization_id"), parts[0])...)
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("name"), parts[1])...)
 }

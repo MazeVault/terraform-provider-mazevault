@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	mazevault "github.com/MazeVault/maze-core/sdks/go"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
@@ -13,6 +14,7 @@ import (
 )
 
 var _ resource.Resource = &GroupMappingResource{}
+var _ resource.ResourceWithImportState = &GroupMappingResource{}
 
 func NewGroupMappingResource() resource.Resource {
 	return &GroupMappingResource{}
@@ -125,4 +127,9 @@ func (r *GroupMappingResource) Delete(ctx context.Context, req resource.DeleteRe
 		resp.Diagnostics.AddError("Delete Group Mapping Error", fmt.Sprintf("Unable to delete group mapping: %s", err))
 		return
 	}
+}
+
+// ImportState implements resource.ResourceWithImportState.
+func (r *GroupMappingResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }

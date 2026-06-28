@@ -2,9 +2,11 @@ package resources
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	mazevault "github.com/MazeVault/maze-core/sdks/go"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
@@ -13,6 +15,7 @@ import (
 )
 
 var _ resource.Resource = &IdentityProviderResource{}
+var _ resource.ResourceWithImportState = &IdentityProviderResource{}
 
 func NewIdentityProviderResource() resource.Resource { return &IdentityProviderResource{} }
 
@@ -86,7 +89,14 @@ func (r *IdentityProviderResource) Create(ctx context.Context, req resource.Crea
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	cfg := parseConfigJSON(data.Config.ValueString())
+	var cfg map[string]interface{}
+	if v := data.Config.ValueString(); v != "" {
+		if err := json.Unmarshal([]byte(v), &cfg); err != nil {
+			resp.Diagnostics.AddError("Invalid config",
+				fmt.Sprintf("config must be a valid JSON object: %v", err))
+			return
+		}
+	}
 	created, err := r.client.CreateIdentityProvider(&mazevault.CreateIdentityProviderRequest{
 		Name:         data.Name.ValueString(),
 		Type:         data.Type.ValueString(),
@@ -132,7 +142,14 @@ func (r *IdentityProviderResource) Update(ctx context.Context, req resource.Upda
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	cfgU := parseConfigJSON(plan.Config.ValueString())
+	var cfgU map[string]interface{}
+	if v := plan.Config.ValueString(); v != "" {
+		if err := json.Unmarshal([]byte(v), &cfgU); err != nil {
+			resp.Diagnostics.AddError("Invalid config",
+				fmt.Sprintf("config must be a valid JSON object: %v", err))
+			return
+		}
+	}
 	if _, err := r.client.UpdateIdentityProvider(state.ID.ValueString(), &mazevault.CreateIdentityProviderRequest{
 		Name:         plan.Name.ValueString(),
 		Type:         plan.Type.ValueString(),
@@ -155,4 +172,9 @@ func (r *IdentityProviderResource) Delete(ctx context.Context, req resource.Dele
 	if err := r.client.DeleteIdentityProvider(data.ID.ValueString()); err != nil {
 		resp.Diagnostics.AddError("Delete Identity Provider Error", fmt.Sprintf("Unable to delete identity provider: %s", err))
 	}
+}
+
+// ImportState implements resource.ResourceWithImportState.
+func (r *IdentityProviderResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }

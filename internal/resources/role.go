@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	mazevault "github.com/MazeVault/maze-core/sdks/go"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
@@ -14,6 +15,7 @@ import (
 )
 
 var _ resource.Resource = &RoleResource{}
+var _ resource.ResourceWithImportState = &RoleResource{}
 
 func NewRoleResource() resource.Resource {
 	return &RoleResource{}
@@ -169,4 +171,9 @@ func (r *RoleResource) Update(_ context.Context, _ resource.UpdateRequest, _ *re
 func (r *RoleResource) Delete(_ context.Context, _ resource.DeleteRequest, _ *resource.DeleteResponse) {
 	// The MazeVault API does not expose a role-delete endpoint.
 	// Removing from Terraform state only; the role remains in MazeVault.
+}
+
+// ImportState implements resource.ResourceWithImportState.
+func (r *RoleResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }

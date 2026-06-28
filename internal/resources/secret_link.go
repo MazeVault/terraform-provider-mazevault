@@ -107,7 +107,8 @@ func (r *SecretLinkResource) Read(ctx context.Context, req resource.ReadRequest,
 			return
 		}
 	}
-	resp.Diagnostics.AddWarning("Secret Link Not Found", "The secret link was not found on the server")
+	// Not found — remove from state so Terraform plans a recreate.
+	resp.State.RemoveResource(ctx)
 }
 
 func (r *SecretLinkResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {

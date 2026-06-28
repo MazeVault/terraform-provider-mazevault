@@ -6,6 +6,7 @@ import (
 	"time"
 
 	mazevault "github.com/MazeVault/maze-core/sdks/go"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
@@ -14,6 +15,7 @@ import (
 )
 
 var _ resource.Resource = &SharedSecretResource{}
+var _ resource.ResourceWithImportState = &SharedSecretResource{}
 
 func NewSharedSecretResource() resource.Resource { return &SharedSecretResource{} }
 
@@ -142,4 +144,9 @@ func (r *SharedSecretResource) Update(_ context.Context, _ resource.UpdateReques
 
 func (r *SharedSecretResource) Delete(_ context.Context, _ resource.DeleteRequest, _ *resource.DeleteResponse) {
 	// Shared secrets auto-expire; removing from state only.
+}
+
+// ImportState implements resource.ResourceWithImportState.
+func (r *SharedSecretResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }

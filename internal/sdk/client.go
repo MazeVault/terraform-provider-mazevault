@@ -51,11 +51,12 @@ func (c *Client) Do(req *http.Request, v interface{}) error {
 	}
 
 	if res.StatusCode >= 400 {
+		msg := fmt.Sprintf("api error: status code %d, body: %s", res.StatusCode, string(body))
 		var errResp ErrorResponse
-		if err := json.Unmarshal(body, &errResp); err == nil && errResp.Error != "" {
-			return fmt.Errorf("api error: %s (details: %s)", errResp.Error, errResp.Details)
+		if jsonErr := json.Unmarshal(body, &errResp); jsonErr == nil && errResp.Error != "" {
+			msg = fmt.Sprintf("api error: %s (details: %s)", errResp.Error, errResp.Details)
 		}
-		return fmt.Errorf("api error: status code %d, body: %s", res.StatusCode, string(body))
+		return &APIError{StatusCode: res.StatusCode, Message: msg}
 	}
 
 	if v != nil {

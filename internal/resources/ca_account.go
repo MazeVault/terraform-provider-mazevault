@@ -2,10 +2,10 @@ package resources
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	mazevault "github.com/MazeVault/maze-core/sdks/go"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
@@ -14,6 +14,7 @@ import (
 )
 
 var _ resource.Resource = &CAAccountResource{}
+var _ resource.ResourceWithImportState = &CAAccountResource{}
 
 func NewCAAccountResource() resource.Resource { return &CAAccountResource{} }
 
@@ -27,19 +28,6 @@ type CAAccountModel struct {
 	APIKey         types.String `tfsdk:"api_key"`
 	BaseURL        types.String `tfsdk:"base_url"`
 	Status         types.String `tfsdk:"status"`
-}
-
-// parseConfigJSON decodes a JSON string into a provider Config map.
-// Returns nil when the input is empty or unparseable.
-func parseConfigJSON(s string) map[string]interface{} {
-	if s == "" {
-		return nil
-	}
-	var m map[string]interface{}
-	if err := json.Unmarshal([]byte(s), &m); err != nil {
-		return nil
-	}
-	return m
 }
 
 func (r *CAAccountResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -184,4 +172,17 @@ func (r *CAAccountResource) Delete(ctx context.Context, req resource.DeleteReque
 	if err := r.client.DeleteCAAccount(data.OrganizationID.ValueString(), data.ID.ValueString()); err != nil {
 		resp.Diagnostics.AddError("Delete CA Account Error", fmt.Sprintf("Unable to delete CA account: %s", err))
 	}
+}
+
+// ImportState implements resource.ResourceWithImportState.
+// Import ID format: "<organization_id>/<resource_id>"
+func (r *CAAccountResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	parts := splitImportID(req.ID)
+	if parts == nil {
+		resp.Diagnostics.AddError("Import Error",
+			"Import ID must be in the format \"<organization_id>/<resource_id>\"")
+		return
+	}
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("organization_id"), parts[0])...)
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), parts[1])...)
 }

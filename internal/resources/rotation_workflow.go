@@ -5,12 +5,14 @@ import (
 	"fmt"
 
 	mazevault "github.com/MazeVault/maze-core/sdks/go"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
 var _ resource.Resource = &RotationWorkflowResource{}
+var _ resource.ResourceWithImportState = &RotationWorkflowResource{}
 
 type RotationWorkflowResource struct {
 	client *mazevault.Client
@@ -24,11 +26,11 @@ type RotationWorkflowResourceModel struct {
 	RotationStrategy    types.String              `tfsdk:"rotation_strategy"`
 	LinkedIntegrations  types.List                `tfsdk:"linked_integrations"`
 	PostRotationActions []PostRotationActionModel `tfsdk:"post_rotation_actions"`
-	// Fáze N: extended attributes for scope, target environment, grace period, and resource kind
-	TargetEnvironment  types.String `tfsdk:"target_environment"`
-	Scope              types.String `tfsdk:"scope"`
-	GracePeriodMinutes types.Int64  `tfsdk:"grace_period_minutes"`
-	ResourceKind       types.String `tfsdk:"resource_kind"`
+	// Extended attributes for target environment and resource kind.
+	// NOTE: `scope` and `grace_period_minutes` have been removed — the backend API
+	// does not accept them on the rotation/configs endpoint.
+	TargetEnvironment types.String `tfsdk:"target_environment"`
+	ResourceKind      types.String `tfsdk:"resource_kind"`
 }
 
 type PostRotationActionModel struct {
@@ -75,14 +77,6 @@ func (r *RotationWorkflowResource) Schema(_ context.Context, _ resource.SchemaRe
 			"target_environment": schema.StringAttribute{
 				Optional:    true,
 				Description: "Override the target environment for secret write-back. Defaults to the workflow's own environment.",
-			},
-			"scope": schema.StringAttribute{
-				Optional:    true,
-				Description: "Scope of this workflow: 'organization' or 'project'. Defaults to 'project'.",
-			},
-			"grace_period_minutes": schema.Int64Attribute{
-				Optional:    true,
-				Description: "Number of minutes the old secret/credential remains active after rotation. 0 means hard cutover (default).",
 			},
 			"resource_kind": schema.StringAttribute{
 				Optional:    true,
@@ -167,7 +161,6 @@ func (r *RotationWorkflowResource) Create(ctx context.Context, req resource.Crea
 		RotationIntervalDays: int(data.TTLHours.ValueInt64() / 24),
 		RotationStrategy:     data.RotationStrategy.ValueString(),
 		TargetEnvironment:    data.TargetEnvironment.ValueString(),
-		GracePeriodMinutes:   int(data.GracePeriodMinutes.ValueInt64()),
 		ResourceKind:         data.ResourceKind.ValueString(),
 		LinkedIntegrations:   linkedIntegrations,
 	}
@@ -207,6 +200,10 @@ func (r *RotationWorkflowResource) Read(ctx context.Context, req resource.ReadRe
 
 	wf, err := r.client.GetRotationWorkflow(data.ID.ValueString())
 	if err != nil {
+		if mazevault.IsNotFoundError(err) {
+			resp.State.RemoveResource(ctx)
+			return
+		}
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to read rotation workflow %s: %s", data.ID.ValueString(), err))
 		return
 	}
@@ -220,12 +217,34 @@ func (r *RotationWorkflowResource) Read(ctx context.Context, req resource.ReadRe
 	data.RotationStrategy = types.StringValue(wf.RotationStrategy)
 	data.TargetEnvironment = types.StringValue(wf.TargetEnvironment)
 	data.ResourceKind = types.StringValue(wf.ResourceKind)
-	data.GracePeriodMinutes = types.Int64Value(int64(wf.GracePeriodMinutes))
 
 	linkedList, diags := types.ListValueFrom(ctx, types.StringType, wf.LinkedIntegrations)
 	resp.Diagnostics.Append(diags...)
 	if !resp.Diagnostics.HasError() {
 		data.LinkedIntegrations = linkedList
+	}
+
+	// Restore post_rotation_actions from the server response to enable drift detection.
+	if len(wf.PostRotationActions) > 0 {
+		actions := make([]PostRotationActionModel, 0, len(wf.PostRotationActions))
+		for _, a := range wf.PostRotationActions {
+			cfgMap, cfgDiags := types.MapValueFrom(ctx, types.StringType, a.Config)
+			resp.Diagnostics.Append(cfgDiags...)
+			if resp.Diagnostics.HasError() {
+				return
+			}
+			actions = append(actions, PostRotationActionModel{
+				Type:              types.StringValue(a.Type),
+				Config:            cfgMap,
+				Order:             types.Int64Value(int64(a.Order)),
+				OnFailure:         types.StringValue(a.OnFailure),
+				GatewayID:         types.StringValue(a.GatewayID),
+				TargetEnvironment: types.StringValue(a.TargetEnvironment),
+			})
+		}
+		data.PostRotationActions = actions
+	} else if data.PostRotationActions == nil {
+		data.PostRotationActions = []PostRotationActionModel{}
 	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
@@ -250,7 +269,6 @@ func (r *RotationWorkflowResource) Update(ctx context.Context, req resource.Upda
 		RotationIntervalDays: int(data.TTLHours.ValueInt64() / 24),
 		RotationStrategy:     data.RotationStrategy.ValueString(),
 		TargetEnvironment:    data.TargetEnvironment.ValueString(),
-		GracePeriodMinutes:   int(data.GracePeriodMinutes.ValueInt64()),
 		ResourceKind:         data.ResourceKind.ValueString(),
 		LinkedIntegrations:   linkedIntegrations,
 	}
@@ -292,4 +310,9 @@ func (r *RotationWorkflowResource) Delete(ctx context.Context, req resource.Dele
 	if err := r.client.DeleteRotationWorkflow(data.ID.ValueString()); err != nil {
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to delete rotation workflow %s: %s", data.ID.ValueString(), err))
 	}
+}
+
+// ImportState implements resource.ResourceWithImportState.
+func (r *RotationWorkflowResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }

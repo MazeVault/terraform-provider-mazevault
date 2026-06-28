@@ -17,6 +17,8 @@ type ProjectCA struct {
 	Type       string  `json:"type"`
 	Status     string  `json:"status"`
 	ValidUntil string  `json:"valid_until"`
+	OCSPURL    string  `json:"ocsp_url"`
+	CRLURL     string  `json:"crl_url"`
 }
 
 // InitializeProjectCARequest is the request body for initializing a project CA
@@ -24,6 +26,14 @@ type InitializeProjectCARequest struct {
 	Name       string `json:"name"`
 	ValidYears int    `json:"valid_years"`
 	KeySize    int    `json:"key_size"`
+}
+
+// UpdateProjectCARequest carries the mutable configuration fields for an existing project CA.
+// All fields are optional — only non-nil values are applied (patch semantics).
+type UpdateProjectCARequest struct {
+	OCSPURL             *string `json:"ocsp_url,omitempty"`
+	CRLURL              *string `json:"crl_url,omitempty"`
+	OCSPResponderCertID *string `json:"ocsp_responder_cert_id,omitempty"`
 }
 
 // InitializeProjectCA initializes an internal root CA for a project
@@ -41,7 +51,7 @@ func (c *Client) InitializeProjectCA(projectID string, req *InitializeProjectCAR
 
 // GetProjectCA retrieves a specific CA within a project
 func (c *Client) GetProjectCA(projectID, caID string) (*ProjectCA, error) {
-	r, err := c.newRequest(http.MethodGet, fmt.Sprintf("/api/v1/projects/%s/cas/%s", projectID, caID), nil)
+	r, err := c.newRequest(http.MethodGet, fmt.Sprintf("/api/v1/projects/%s/ca/%s", projectID, caID), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -54,7 +64,7 @@ func (c *Client) GetProjectCA(projectID, caID string) (*ProjectCA, error) {
 
 // ListProjectCAs lists all CAs for a project
 func (c *Client) ListProjectCAs(projectID string) ([]ProjectCA, error) {
-	r, err := c.newRequest(http.MethodGet, "/api/v1/projects/"+projectID+"/cas", nil)
+	r, err := c.newRequest(http.MethodGet, "/api/v1/projects/"+projectID+"/ca", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -63,6 +73,20 @@ func (c *Client) ListProjectCAs(projectID string) ([]ProjectCA, error) {
 		return nil, err
 	}
 	return resp, nil
+}
+
+// UpdateProjectCA updates the mutable OCSP/CRL configuration of a project CA.
+// Only non-nil fields in req are applied (patch semantics).
+func (c *Client) UpdateProjectCA(projectID, caID string, req *UpdateProjectCARequest) (*ProjectCA, error) {
+	r, err := c.newRequest(http.MethodPut, fmt.Sprintf("/api/v1/projects/%s/ca/%s", projectID, caID), req)
+	if err != nil {
+		return nil, err
+	}
+	var resp ProjectCA
+	if err := c.Do(r, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
 }
 
 // ========================

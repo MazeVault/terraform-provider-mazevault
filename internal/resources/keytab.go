@@ -6,6 +6,7 @@ import (
 	"time"
 
 	mazevault "github.com/MazeVault/maze-core/sdks/go"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
@@ -14,6 +15,7 @@ import (
 )
 
 var _ resource.Resource = &KeytabResource{}
+var _ resource.ResourceWithImportState = &KeytabResource{}
 
 func NewKeytabResource() resource.Resource { return &KeytabResource{} }
 
@@ -155,4 +157,9 @@ func (r *KeytabResource) Delete(ctx context.Context, req resource.DeleteRequest,
 	if err := r.client.DeleteKeytab(data.ID.ValueString()); err != nil {
 		resp.Diagnostics.AddError("Delete Keytab Error", fmt.Sprintf("Unable to delete keytab: %s", err))
 	}
+}
+
+// ImportState implements resource.ResourceWithImportState.
+func (r *KeytabResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }

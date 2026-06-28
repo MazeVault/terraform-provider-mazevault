@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	mazevault "github.com/MazeVault/maze-core/sdks/go"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
@@ -13,6 +14,7 @@ import (
 )
 
 var _ resource.Resource = &CertificateTemplateResource{}
+var _ resource.ResourceWithImportState = &CertificateTemplateResource{}
 
 func NewCertificateTemplateResource() resource.Resource {
 	return &CertificateTemplateResource{}
@@ -189,4 +191,9 @@ func (r *CertificateTemplateResource) Delete(ctx context.Context, req resource.D
 		resp.Diagnostics.AddError("Delete Template Error", fmt.Sprintf("Unable to delete certificate template: %s", err))
 		return
 	}
+}
+
+// ImportState implements resource.ResourceWithImportState.
+func (r *CertificateTemplateResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }

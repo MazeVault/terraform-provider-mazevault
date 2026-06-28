@@ -41,7 +41,7 @@ type ListRotationTemplatesResponse struct {
 
 // CreateRotationTemplate creates a new rotation config template.
 func (c *Client) CreateRotationTemplate(req *CreateRotationTemplateRequest) (*RotationConfigTemplate, error) {
-	r, err := c.newRequest(http.MethodPost, "/rotation/templates", req)
+	r, err := c.newRequest(http.MethodPost, "/api/v1/rotation/templates", req)
 	if err != nil {
 		return nil, err
 	}
@@ -54,7 +54,7 @@ func (c *Client) CreateRotationTemplate(req *CreateRotationTemplateRequest) (*Ro
 
 // GetRotationTemplate retrieves a rotation template by ID.
 func (c *Client) GetRotationTemplate(id string) (*RotationConfigTemplate, error) {
-	path := fmt.Sprintf("/rotation/templates/%s", id)
+	path := fmt.Sprintf("/api/v1/rotation/templates/%s", id)
 	r, err := c.newRequest(http.MethodGet, path, nil)
 	if err != nil {
 		return nil, err
@@ -68,7 +68,7 @@ func (c *Client) GetRotationTemplate(id string) (*RotationConfigTemplate, error)
 
 // UpdateRotationTemplate updates a rotation template.
 func (c *Client) UpdateRotationTemplate(id string, req *CreateRotationTemplateRequest) (*RotationConfigTemplate, error) {
-	path := fmt.Sprintf("/rotation/templates/%s", id)
+	path := fmt.Sprintf("/api/v1/rotation/templates/%s", id)
 	r, err := c.newRequest(http.MethodPut, path, req)
 	if err != nil {
 		return nil, err
@@ -82,7 +82,7 @@ func (c *Client) UpdateRotationTemplate(id string, req *CreateRotationTemplateRe
 
 // DeleteRotationTemplate deletes a rotation template.
 func (c *Client) DeleteRotationTemplate(id string) error {
-	path := fmt.Sprintf("/rotation/templates/%s", id)
+	path := fmt.Sprintf("/api/v1/rotation/templates/%s", id)
 	r, err := c.newRequest(http.MethodDelete, path, nil)
 	if err != nil {
 		return err

@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	mazevault "github.com/MazeVault/maze-core/sdks/go"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
@@ -13,6 +14,7 @@ import (
 )
 
 var _ resource.Resource = &CertificateResource{}
+var _ resource.ResourceWithImportState = &CertificateResource{}
 
 func NewCertificateResource() resource.Resource {
 	return &CertificateResource{}
@@ -196,4 +198,9 @@ func (r *CertificateResource) Delete(ctx context.Context, req resource.DeleteReq
 	if err := r.client.RevokeCertificate(data.ID.ValueString()); err != nil {
 		resp.Diagnostics.AddError("Revoke Certificate Error", fmt.Sprintf("Unable to revoke certificate: %s", err))
 	}
+}
+
+// ImportState implements resource.ResourceWithImportState.
+func (r *CertificateResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }

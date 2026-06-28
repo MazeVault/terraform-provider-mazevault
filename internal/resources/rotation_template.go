@@ -5,12 +5,14 @@ import (
 	"fmt"
 
 	mazevault "github.com/MazeVault/maze-core/sdks/go"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
 var _ resource.Resource = &RotationTemplateResource{}
+var _ resource.ResourceWithImportState = &RotationTemplateResource{}
 
 // NewRotationTemplateResource returns a new mazevault_rotation_template resource.
 func NewRotationTemplateResource() resource.Resource { return &RotationTemplateResource{} }
@@ -192,4 +194,9 @@ func (r *RotationTemplateResource) Delete(ctx context.Context, req resource.Dele
 	if err := r.client.DeleteRotationTemplate(data.ID.ValueString()); err != nil {
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to delete rotation template %s: %s", data.ID.ValueString(), err))
 	}
+}
+
+// ImportState implements resource.ResourceWithImportState.
+func (r *RotationTemplateResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }

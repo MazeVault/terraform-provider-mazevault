@@ -221,7 +221,10 @@ func (p *MazeVaultProvider) Resources(ctx context.Context) []func() resource.Res
 		resources.NewRotationConfigResource,
 		resources.NewRotationWorkflowResource,
 		resources.NewRotationTemplateResource,
+		resources.NewSecretRotationTargetResource,
 		resources.NewDeploymentResource,
+		resources.NewCertificateRotationConfigResource,
+		resources.NewEntraRotationConfigResource,
 		// Sync Rules
 		resources.NewSyncRuleResource,
 	}
@@ -243,6 +246,9 @@ func (p *MazeVaultProvider) DataSources(ctx context.Context) []func() datasource
 		datasources.NewAuditLogsDataSource,
 		datasources.NewRotationExecutionsDataSource,
 		datasources.NewRenewalQueueDataSource,
+		datasources.NewRotationResourcesDataSource,
+		datasources.NewRotationResourceHistoryDataSource,
+		datasources.NewProjectRotationConfigsDataSource,
 		// RBAC
 		datasources.NewUsersDataSource,
 		datasources.NewRolesDataSource,

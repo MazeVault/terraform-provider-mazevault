@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	mazevault "github.com/MazeVault/maze-core/sdks/go"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
@@ -13,6 +14,7 @@ import (
 )
 
 var _ resource.Resource = &ServiceIdentityResource{}
+var _ resource.ResourceWithImportState = &ServiceIdentityResource{}
 
 func NewServiceIdentityResource() resource.Resource {
 	return &ServiceIdentityResource{}
@@ -173,4 +175,9 @@ func (r *ServiceIdentityResource) Delete(ctx context.Context, req resource.Delet
 	if err := r.client.DeleteServiceIdentity(data.ID.ValueString()); err != nil {
 		resp.Diagnostics.AddError("Delete Service Identity Error", fmt.Sprintf("Unable to delete service identity: %s", err))
 	}
+}
+
+// ImportState implements resource.ResourceWithImportState.
+func (r *ServiceIdentityResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }

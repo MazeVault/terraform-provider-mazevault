@@ -39,9 +39,23 @@ type ListSyncRulesResponse struct {
 	Rules []SyncRule `json:"rules"`
 }
 
+// ListSyncRules returns all sync rules for a project.
+func (c *Client) ListSyncRules(projectID string) ([]SyncRule, error) {
+	path := fmt.Sprintf("/api/v1/projects/%s/sync-rules", projectID)
+	r, err := c.newRequest(http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var resp ListSyncRulesResponse
+	if err := c.Do(r, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Rules, nil
+}
+
 // CreateSyncRule creates a new sync rule for a project.
 func (c *Client) CreateSyncRule(req *CreateSyncRuleRequest) (*SyncRule, error) {
-	path := fmt.Sprintf("/projects/%s/sync-rules", req.ProjectID)
+	path := fmt.Sprintf("/api/v1/projects/%s/sync-rules", req.ProjectID)
 	r, err := c.newRequest(http.MethodPost, path, req)
 	if err != nil {
 		return nil, err
@@ -54,22 +68,25 @@ func (c *Client) CreateSyncRule(req *CreateSyncRuleRequest) (*SyncRule, error) {
 }
 
 // GetSyncRule retrieves a sync rule by project ID and rule ID.
+// The backend has no dedicated GET-by-ID endpoint; this function uses ListSyncRules
+// and filters by ID (O(n) in the number of rules per project).
 func (c *Client) GetSyncRule(projectID, ruleID string) (*SyncRule, error) {
-	path := fmt.Sprintf("/projects/%s/sync-rules/%s", projectID, ruleID)
-	r, err := c.newRequest(http.MethodGet, path, nil)
+	rules, err := c.ListSyncRules(projectID)
 	if err != nil {
 		return nil, err
 	}
-	var resp SyncRule
-	if err := c.Do(r, &resp); err != nil {
-		return nil, err
+	for i := range rules {
+		if rules[i].ID == ruleID {
+			return &rules[i], nil
+		}
 	}
-	return &resp, nil
+	return nil, nil
 }
 
 // UpdateSyncRule updates a sync rule.
+// Backend route: PUT /api/v1/projects/sync-rules/:ruleId (no project ID in URL).
 func (c *Client) UpdateSyncRule(projectID, ruleID string, req *CreateSyncRuleRequest) (*SyncRule, error) {
-	path := fmt.Sprintf("/projects/%s/sync-rules/%s", projectID, ruleID)
+	path := fmt.Sprintf("/api/v1/projects/sync-rules/%s", ruleID)
 	r, err := c.newRequest(http.MethodPut, path, req)
 	if err != nil {
 		return nil, err
@@ -82,8 +99,9 @@ func (c *Client) UpdateSyncRule(projectID, ruleID string, req *CreateSyncRuleReq
 }
 
 // DeleteSyncRule deletes a sync rule.
+// Backend route: DELETE /api/v1/projects/sync-rules/:ruleId (no project ID in URL).
 func (c *Client) DeleteSyncRule(projectID, ruleID string) error {
-	path := fmt.Sprintf("/projects/%s/sync-rules/%s", projectID, ruleID)
+	path := fmt.Sprintf("/api/v1/projects/sync-rules/%s", ruleID)
 	r, err := c.newRequest(http.MethodDelete, path, nil)
 	if err != nil {
 		return err

@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	mazevault "github.com/MazeVault/maze-core/sdks/go"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
@@ -16,6 +17,7 @@ import (
 )
 
 var _ resource.Resource = &RenewalPolicyResource{}
+var _ resource.ResourceWithImportState = &RenewalPolicyResource{}
 
 func NewRenewalPolicyResource() resource.Resource { return &RenewalPolicyResource{} }
 
@@ -197,4 +199,17 @@ func (r *RenewalPolicyResource) Delete(ctx context.Context, req resource.DeleteR
 	if err := r.client.DeleteRenewalPolicy(data.OrganizationID.ValueString(), data.ID.ValueString()); err != nil {
 		resp.Diagnostics.AddError("Delete Renewal Policy Error", fmt.Sprintf("Unable to delete renewal policy: %s", err))
 	}
+}
+
+// ImportState implements resource.ResourceWithImportState.
+// Import ID format: "<organization_id>/<resource_id>"
+func (r *RenewalPolicyResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	parts := splitImportID(req.ID)
+	if parts == nil {
+		resp.Diagnostics.AddError("Import Error",
+			"Import ID must be in the format \"<organization_id>/<resource_id>\"")
+		return
+	}
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("organization_id"), parts[0])...)
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), parts[1])...)
 }

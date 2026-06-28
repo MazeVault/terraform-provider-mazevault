@@ -6,6 +6,7 @@ import (
 	"time"
 
 	mazevault "github.com/MazeVault/maze-core/sdks/go"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
@@ -14,6 +15,7 @@ import (
 )
 
 var _ resource.Resource = &DeploymentResource{}
+var _ resource.ResourceWithImportState = &DeploymentResource{}
 
 func NewDeploymentResource() resource.Resource { return &DeploymentResource{} }
 
@@ -163,4 +165,9 @@ func (r *DeploymentResource) Update(_ context.Context, _ resource.UpdateRequest,
 
 func (r *DeploymentResource) Delete(_ context.Context, _ resource.DeleteRequest, _ *resource.DeleteResponse) {
 	// Deleting a deployment from state only — there is no API endpoint to delete deployment records.
+}
+
+// ImportState implements resource.ResourceWithImportState.
+func (r *DeploymentResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }

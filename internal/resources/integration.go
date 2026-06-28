@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	mazevault "github.com/MazeVault/maze-core/sdks/go"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
@@ -13,6 +14,7 @@ import (
 )
 
 var _ resource.Resource = &IntegrationResource{}
+var _ resource.ResourceWithImportState = &IntegrationResource{}
 
 func NewIntegrationResource() resource.Resource { return &IntegrationResource{} }
 
@@ -113,41 +115,46 @@ func (r *IntegrationResource) Read(ctx context.Context, req resource.ReadRequest
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	list, err := r.client.ListIntegrations(data.ProjectID.ValueString())
+	it, err := r.client.GetIntegration(data.ID.ValueString())
 	if err != nil {
+		if mazevault.IsNotFoundError(err) {
+			resp.State.RemoveResource(ctx)
+			return
+		}
 		resp.Diagnostics.AddError("Read Integration Error", err.Error())
 		return
 	}
-	for _, it := range list {
-		if it.ID == data.ID.ValueString() {
-			// reflect config back if needed
-			if v, ok := it.Config["azure_org"].(string); ok {
-				data.AzureOrg = types.StringValue(v)
-			}
-			if v, ok := it.Config["azure_project"].(string); ok {
-				data.AzureProject = types.StringValue(v)
-			}
-			if v, ok := it.Config["azure_mode"].(string); ok {
-				data.AzureMode = types.StringValue(v)
-			}
-			if v, ok := it.Config["azure_variable_group_id"].(string); ok {
-				data.AzureVariableGroupID = types.StringValue(v)
-			}
-			if v, ok := it.Config["azure_repo"].(string); ok {
-				data.AzureRepo = types.StringValue(v)
-			}
-			if v, ok := it.Config["azure_branch"].(string); ok {
-				data.AzureBranch = types.StringValue(v)
-			}
-			if v, ok := it.Config["azure_file_path"].(string); ok {
-				data.AzureFilePath = types.StringValue(v)
-			}
-			resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
-			return
-		}
+	if it == nil {
+		resp.State.RemoveResource(ctx)
+		return
 	}
-	// Not found
-	resp.Diagnostics.AddWarning("Integration Not Found", "The integration was not found on the server")
+	// Restore core fields from API response.
+	data.Name = types.StringValue(it.Name)
+	data.Type = types.StringValue(it.Type)
+	data.Provider = types.StringValue(it.Provider)
+	// Reflect Azure DevOps config fields (write-only fields like AzurePAT are preserved from state).
+	if v, ok := it.Config["azure_org"].(string); ok {
+		data.AzureOrg = types.StringValue(v)
+	}
+	if v, ok := it.Config["azure_project"].(string); ok {
+		data.AzureProject = types.StringValue(v)
+	}
+	if v, ok := it.Config["azure_mode"].(string); ok {
+		data.AzureMode = types.StringValue(v)
+	}
+	if v, ok := it.Config["azure_variable_group_id"].(string); ok {
+		data.AzureVariableGroupID = types.StringValue(v)
+	}
+	if v, ok := it.Config["azure_repo"].(string); ok {
+		data.AzureRepo = types.StringValue(v)
+	}
+	if v, ok := it.Config["azure_branch"].(string); ok {
+		data.AzureBranch = types.StringValue(v)
+	}
+	if v, ok := it.Config["azure_file_path"].(string); ok {
+		data.AzureFilePath = types.StringValue(v)
+	}
+	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
 func (r *IntegrationResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
@@ -191,4 +198,9 @@ func (r *IntegrationResource) Delete(ctx context.Context, req resource.DeleteReq
 		resp.Diagnostics.AddError("Delete Integration Error", err.Error())
 		return
 	}
+}
+
+// ImportState implements resource.ResourceWithImportState.
+func (r *IntegrationResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }

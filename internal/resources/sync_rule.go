@@ -5,12 +5,14 @@ import (
 	"fmt"
 
 	mazevault "github.com/MazeVault/maze-core/sdks/go"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
 var _ resource.Resource = &SyncRuleResource{}
+var _ resource.ResourceWithImportState = &SyncRuleResource{}
 
 // NewSyncRuleResource returns a new mazevault_sync_rule resource.
 func NewSyncRuleResource() resource.Resource { return &SyncRuleResource{} }
@@ -189,4 +191,17 @@ func (r *SyncRuleResource) Delete(ctx context.Context, req resource.DeleteReques
 	if err := r.client.DeleteSyncRule(data.ProjectID.ValueString(), data.ID.ValueString()); err != nil {
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to delete sync rule %s: %s", data.ID.ValueString(), err))
 	}
+}
+
+// ImportState implements resource.ResourceWithImportState.
+// Import ID format: "<project_id>/<resource_id>"
+func (r *SyncRuleResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	parts := splitImportID(req.ID)
+	if parts == nil {
+		resp.Diagnostics.AddError("Import Error",
+			"Import ID must be in the format \"<project_id>/<resource_id>\"")
+		return
+	}
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("project_id"), parts[0])...)
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), parts[1])...)
 }
