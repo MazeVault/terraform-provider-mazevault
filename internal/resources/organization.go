@@ -188,7 +188,11 @@ func (r *OrganizationResource) Delete(ctx context.Context, req resource.DeleteRe
 		// Treat expected "no DELETE endpoint" responses as soft removals: the
 		// resource is gone from state but the backend object is preserved.
 		// Any other error is a hard failure that must surface to the operator.
-		if strings.Contains(errMsg, "404") ||
+		// IsNotFoundError covers structured SDK 404; the string fallbacks cover
+		// 405 Method Not Allowed and "not supported" responses from older backend
+		// versions that do not return a structured APIError.
+		if mazevault.IsNotFoundError(err) ||
+			strings.Contains(errMsg, "404") ||
 			strings.Contains(errMsg, "405") ||
 			strings.Contains(errMsg, "not found") ||
 			strings.Contains(errMsg, "not supported") {

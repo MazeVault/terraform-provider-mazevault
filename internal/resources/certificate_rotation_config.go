@@ -3,7 +3,6 @@ package resources
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	mazevault "github.com/MazeVault/maze-core/sdks/go"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
@@ -223,7 +222,7 @@ func (r *CertificateRotationConfigResource) Read(ctx context.Context, req resour
 
 	cfg, err := r.client.GetCertificateRotationConfig(data.CertificateID.ValueString())
 	if err != nil {
-		if strings.Contains(err.Error(), "404") || strings.Contains(err.Error(), "not found") {
+		if mazevault.IsNotFoundError(err) {
 			resp.State.RemoveResource(ctx)
 			return
 		}
@@ -275,7 +274,7 @@ func (r *CertificateRotationConfigResource) Delete(ctx context.Context, req reso
 	disableReq := &mazevault.UpdateCertRotationConfigRequest{Enabled: &disabled}
 	if _, err := r.client.UpdateCertificateRotationConfig(data.CertificateID.ValueString(), disableReq); err != nil {
 		// Treat 404 as already gone.
-		if strings.Contains(err.Error(), "404") || strings.Contains(err.Error(), "not found") {
+		if mazevault.IsNotFoundError(err) {
 			return
 		}
 		resp.Diagnostics.AddError("Client Error",
@@ -365,11 +364,15 @@ func populateCertRotationState(ctx context.Context, data *CertRotationConfigMode
 
 	if cfg.LastRotatedAt != nil {
 		data.LastRotatedAt = types.StringValue(cfg.LastRotatedAt.Format("2006-01-02T15:04:05Z07:00"))
+	} else {
+		data.LastRotatedAt = types.StringNull()
 	}
 	if cfg.NextRotationAt != nil {
 		data.NextRotationAt = types.StringValue(cfg.NextRotationAt.Format("2006-01-02T15:04:05Z07:00"))
 	} else if cfg.Resource != nil && cfg.Resource.NextDueAt != nil {
 		data.NextRotationAt = types.StringValue(cfg.Resource.NextDueAt.Format("2006-01-02T15:04:05Z07:00"))
+	} else {
+		data.NextRotationAt = types.StringNull()
 	}
 }
 

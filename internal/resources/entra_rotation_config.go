@@ -3,7 +3,6 @@ package resources
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	mazevault "github.com/MazeVault/maze-core/sdks/go"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
@@ -220,7 +219,7 @@ func (r *EntraRotationConfigResource) Read(ctx context.Context, req resource.Rea
 
 	cfg, err := r.client.GetEntraRotationConfig(data.CredentialID.ValueString())
 	if err != nil {
-		if strings.Contains(err.Error(), "404") || strings.Contains(err.Error(), "not found") {
+		if mazevault.IsNotFoundError(err) {
 			resp.State.RemoveResource(ctx)
 			return
 		}
@@ -270,7 +269,7 @@ func (r *EntraRotationConfigResource) Delete(ctx context.Context, req resource.D
 
 	disableReq := &mazevault.ConfigureEntraRotationRequest{RotationEnabled: false}
 	if _, err := r.client.UpdateEntraRotationConfig(data.CredentialID.ValueString(), disableReq); err != nil {
-		if strings.Contains(err.Error(), "404") || strings.Contains(err.Error(), "not found") {
+		if mazevault.IsNotFoundError(err) {
 			return
 		}
 		resp.Diagnostics.AddError("Client Error",
@@ -377,6 +376,8 @@ func populateEntraRotationState(ctx context.Context, data *EntraRotationConfigMo
 
 	if cfg.LastRotatedAt != nil {
 		data.LastRotatedAt = types.StringValue(cfg.LastRotatedAt.Format("2006-01-02T15:04:05Z07:00"))
+	} else {
+		data.LastRotatedAt = types.StringNull()
 	}
 }
 

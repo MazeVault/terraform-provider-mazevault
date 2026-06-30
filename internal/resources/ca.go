@@ -85,11 +85,13 @@ func (r *CAResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *r
 				Optional:            true,
 				Computed:            true,
 				MarkdownDescription: "OCSP responder URL embedded in the Authority Information Access (AIA) extension of every certificate issued by this CA. When set, all newly issued certificates will carry this URL in their AIA extension, enabling OCSP-based revocation checking.",
+				PlanModifiers:       []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"crl_url": schema.StringAttribute{
 				Optional:            true,
 				Computed:            true,
 				MarkdownDescription: "CRL Distribution Point (CDP) URL embedded in the CDP extension of every certificate issued by this CA. When set, all newly issued certificates will carry this URL so clients can download and verify the Certificate Revocation List.",
+				PlanModifiers:       []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 		},
 	}
@@ -165,6 +167,10 @@ func (r *CAResource) Read(ctx context.Context, req resource.ReadRequest, resp *r
 
 	ca, err := r.client.GetProjectCA(data.ProjectID.ValueString(), data.ID.ValueString())
 	if err != nil {
+		if mazevault.IsNotFoundError(err) {
+			resp.State.RemoveResource(ctx)
+			return
+		}
 		resp.Diagnostics.AddError("Read CA Error", fmt.Sprintf("Unable to read project CA: %s", err))
 		return
 	}
@@ -194,10 +200,12 @@ func (r *CAResource) Update(ctx context.Context, req resource.UpdateRequest, res
 	}
 
 	updateReq := &mazevault.UpdateProjectCARequest{}
-	if v := data.OCSPURL.ValueString(); !data.OCSPURL.IsNull() {
+	if !data.OCSPURL.IsNull() && !data.OCSPURL.IsUnknown() {
+		v := data.OCSPURL.ValueString()
 		updateReq.OCSPURL = &v
 	}
-	if v := data.CRLURL.ValueString(); !data.CRLURL.IsNull() {
+	if !data.CRLURL.IsNull() && !data.CRLURL.IsUnknown() {
+		v := data.CRLURL.ValueString()
 		updateReq.CRLURL = &v
 	}
 

@@ -3,7 +3,6 @@ package resources
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	mazevault "github.com/MazeVault/maze-core/sdks/go"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
@@ -243,7 +242,7 @@ func (r *RotationConfigResource) Read(ctx context.Context, req resource.ReadRequ
 	cfg, err := r.client.GetRotationConfig(data.ID.ValueString())
 	if err != nil {
 		// Treat definitive 404s as a deleted resource; surface all other errors.
-		if strings.Contains(err.Error(), "404") || strings.Contains(err.Error(), "not found") {
+		if mazevault.IsNotFoundError(err) {
 			resp.State.RemoveResource(ctx)
 			return
 		}
@@ -365,7 +364,7 @@ func (r *RotationConfigResource) Delete(ctx context.Context, req resource.Delete
 
 	if err := r.client.DeleteRotationConfig(data.ID.ValueString()); err != nil {
 		// If already gone, treat as success.
-		if strings.Contains(err.Error(), "404") || strings.Contains(err.Error(), "not found") {
+		if mazevault.IsNotFoundError(err) {
 			return
 		}
 		resp.Diagnostics.AddError(
@@ -391,11 +390,15 @@ func populateRotationConfigState(data *RotationConfigResourceModel, cfg *mazevau
 
 	if cfg.LastRotatedAt != nil {
 		data.LastRotatedAt = types.StringValue(cfg.LastRotatedAt.Format("2006-01-02T15:04:05Z07:00"))
+	} else {
+		data.LastRotatedAt = types.StringNull()
 	}
 	if cfg.NextRotationAt != nil {
 		data.NextRotationAt = types.StringValue(cfg.NextRotationAt.Format("2006-01-02T15:04:05Z07:00"))
 	} else if cfg.Resource != nil && cfg.Resource.NextDueAt != nil {
 		data.NextRotationAt = types.StringValue(cfg.Resource.NextDueAt.Format("2006-01-02T15:04:05Z07:00"))
+	} else {
+		data.NextRotationAt = types.StringNull()
 	}
 }
 
