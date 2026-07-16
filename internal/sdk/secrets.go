@@ -62,6 +62,33 @@ func (c *Client) CreateSecret(projectID, key, value, environment string, ttlHour
 	return &resp, nil
 }
 
+// CreateSecretGenerated creates a secret whose value is generated server-side.
+// The plaintext is generated inside the vault (crypto/rand) and is NOT returned
+// by this call; in Orchestrator Mode it is offloaded to the external provider.
+func (c *Client) CreateSecretGenerated(projectID, key, environment string, ttlHours int, metadata map[string]string, rotation *RotationConfig, generate *SecretGenerate) (*CreateSecretResponse, error) {
+	reqBody := CreateSecretRequest{
+		ProjectID:   projectID,
+		Key:         key,
+		Environment: environment,
+		TTLHours:    ttlHours,
+		Metadata:    metadata,
+		Rotation:    rotation,
+		Generate:    generate,
+	}
+
+	req, err := c.newRequest(http.MethodPost, "/api/v1/secrets", reqBody)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp CreateSecretResponse
+	if err := c.Do(req, &resp); err != nil {
+		return nil, err
+	}
+
+	return &resp, nil
+}
+
 // UpdateSecret updates a secret
 func (c *Client) UpdateSecret(id, value string, ttlHours int, metadata map[string]string) (*Secret, error) {
 	reqBody := struct {

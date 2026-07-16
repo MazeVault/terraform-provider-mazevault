@@ -32,11 +32,13 @@ func (c *Client) GetProject(id string) (*Project, error) {
 	return &resp, nil
 }
 
-// CreateProject creates a new project with the given name, environment, and organization.
-func (c *Client) CreateProject(name, environment, organizationID string) (*Project, error) {
+// CreateProject creates a new project with the given name, type, and organization.
+// projectType is one of "secret" or "certificate" (defaults to "secret" server-side
+// when empty).
+func (c *Client) CreateProject(name, projectType, organizationID string) (*Project, error) {
 	reqBody := CreateProjectRequest{
 		Name:           name,
-		Environment:    environment,
+		Type:           projectType,
 		OrganizationID: organizationID,
 	}
 
@@ -53,12 +55,11 @@ func (c *Client) CreateProject(name, environment, organizationID string) (*Proje
 	return &resp, nil
 }
 
-// UpdateProject updates a project's name, environment, and organization.
-func (c *Client) UpdateProject(id, name, environment, organizationID string) (*Project, error) {
-	reqBody := CreateProjectRequest{
-		Name:           name,
-		Environment:    environment,
-		OrganizationID: organizationID,
+// UpdateProject updates a project's mutable fields via PUT /api/v1/projects/:id.
+// Only the name is mutable; project type is immutable server-side.
+func (c *Client) UpdateProject(id, name string) (*Project, error) {
+	reqBody := UpdateProjectRequest{
+		Name: name,
 	}
 
 	req, err := c.newRequest(http.MethodPut, "/api/v1/projects/"+id, reqBody)

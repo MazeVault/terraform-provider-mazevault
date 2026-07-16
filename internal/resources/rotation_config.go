@@ -11,6 +11,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
@@ -40,6 +41,7 @@ type RotationConfigResourceModel struct {
 	NotificationEmails   types.List                `tfsdk:"notification_emails"`
 	PostActions          []PostRotationActionModel `tfsdk:"post_actions"`
 	TargetEnvironment    types.String              `tfsdk:"target_environment"`
+	SecretCustodyMode    types.String              `tfsdk:"secret_custody_mode"`
 	// Computed status fields — populated from the backend; not user-configurable.
 	Status         types.String `tfsdk:"status"`
 	LastRotatedAt  types.String `tfsdk:"last_rotated_at"`
@@ -100,6 +102,12 @@ func (r *RotationConfigResource) Schema(_ context.Context, _ resource.SchemaRequ
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.UseStateForUnknown(),
 				},
+			},
+			"secret_custody_mode": schema.StringAttribute{
+				Optional:    true,
+				Computed:    true,
+				Default:     stringdefault.StaticString("local"),
+				Description: "How secret values are handled during rotation: local (Standard), transient (HSM generates, temporary access), delegated (zero-knowledge).",
 			},
 			// Computed status attributes.
 			"status": schema.StringAttribute{

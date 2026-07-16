@@ -129,7 +129,11 @@ func (r *ServiceIdentityResource) Read(ctx context.Context, req resource.ReadReq
 	}
 
 	data.DisplayName = types.StringValue(identity.DisplayName)
-	data.Description = types.StringValue(identity.Description)
+	if identity.Description != "" {
+		data.Description = types.StringValue(identity.Description)
+	} else {
+		data.Description = types.StringNull()
+	}
 	data.OwnerEmail = types.StringValue(identity.OwnerEmail)
 	data.ClientID = types.StringValue(identity.ClientID)
 	// ClientSecret is write-only; preserve existing state value

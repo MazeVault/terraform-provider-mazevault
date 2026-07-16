@@ -87,6 +87,7 @@ func (r *CertificateRotationConfigResource) Schema(_ context.Context, _ resource
 			},
 			"schedule": schema.StringAttribute{
 				Optional:    true,
+				Computed:    true,
 				Description: "Cron expression for scheduled renewal (e.g. `\"0 3 * * *\"` for daily at 03:00 UTC). When set, takes precedence over `renewal_lead_days`-based scheduling.",
 			},
 			"renewal_lead_days": schema.Int64Attribute{
@@ -115,6 +116,7 @@ func (r *CertificateRotationConfigResource) Schema(_ context.Context, _ resource
 			},
 			"notification_emails": schema.ListAttribute{
 				Optional:    true,
+				Computed:    true,
 				ElementType: types.StringType,
 				Description: "E-mail addresses to notify after a renewal event.",
 			},
@@ -149,23 +151,28 @@ func (r *CertificateRotationConfigResource) Schema(_ context.Context, _ resource
 						},
 						"config": schema.MapAttribute{
 							Optional:    true,
+							Computed:    true,
 							ElementType: types.StringType,
 							Description: "String key/value configuration map for the action.",
 						},
 						"order": schema.Int64Attribute{
 							Optional:    true,
+							Computed:    true,
 							Description: "Execution order (lower numbers run first).",
 						},
 						"on_failure": schema.StringAttribute{
 							Optional:    true,
+							Computed:    true,
 							Description: "Behaviour on failure: `continue`, `rollback`, or `notify`.",
 						},
 						"gateway_id": schema.StringAttribute{
 							Optional:    true,
+							Computed:    true,
 							Description: "Pin this action to a specific gateway ID instead of using environment-based routing.",
 						},
 						"target_environment": schema.StringAttribute{
 							Optional:    true,
+							Computed:    true,
 							Description: "Override the environment context used when resolving which gateway executes this action.",
 						},
 					},
@@ -302,12 +309,16 @@ func buildCertRotationRequest(ctx context.Context, data *CertRotationConfigModel
 	}
 
 	var emails []string
-	d.Append(data.NotificationEmails.ElementsAs(ctx, &emails, false)...)
+	if !data.NotificationEmails.IsNull() && !data.NotificationEmails.IsUnknown() {
+		d.Append(data.NotificationEmails.ElementsAs(ctx, &emails, false)...)
+	}
 	req.NotificationEmails = emails
 
 	for _, a := range data.PostRotationActions {
 		cfg := make(map[string]string)
-		d.Append(a.Config.ElementsAs(ctx, &cfg, false)...)
+		if !a.Config.IsNull() && !a.Config.IsUnknown() {
+			d.Append(a.Config.ElementsAs(ctx, &cfg, false)...)
+		}
 		req.PostRotationActions = append(req.PostRotationActions, mazevault.PostRotationActionWF{
 			Type:              a.Type.ValueString(),
 			Config:            cfg,

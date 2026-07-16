@@ -28,13 +28,16 @@ func (c *Client) ListIntegrations(projectID string) ([]Integration, error) {
 }
 
 // CreateIntegration creates an integration
-func (c *Client) CreateIntegration(projectID, name, typ, provider, environment string, config map[string]interface{}) (*Integration, error) {
+func (c *Client) CreateIntegration(projectID, name, typ, provider, environment string, config map[string]interface{}, interactiveAuthMethod string) (*Integration, error) {
 	body := map[string]interface{}{
 		"name":        name,
 		"type":        typ,
 		"provider":    provider,
 		"environment": environment,
 		"config":      config,
+	}
+	if interactiveAuthMethod != "" {
+		body["interactive_auth_method"] = interactiveAuthMethod
 	}
 	req, err := c.newRequest(http.MethodPost, "/api/v1/projects/"+projectID+"/integrations", body)
 	if err != nil {
@@ -106,12 +109,15 @@ func (c *Client) DeleteSecretLink(secretID, linkID string) error {
 }
 
 // UpdateIntegration updates an existing project integration
-func (c *Client) UpdateIntegration(integrationID string, name, typ, provider string, config map[string]interface{}) (*Integration, error) {
+func (c *Client) UpdateIntegration(integrationID string, name, typ, provider string, config map[string]interface{}, interactiveAuthMethod string) (*Integration, error) {
 	body := map[string]interface{}{
 		"name":     name,
 		"type":     typ,
 		"provider": provider,
 		"config":   config,
+	}
+	if interactiveAuthMethod != "" {
+		body["interactive_auth_method"] = interactiveAuthMethod
 	}
 	req, err := c.newRequest(http.MethodPut, "/api/v1/projects/integrations/"+integrationID, body)
 	if err != nil {
@@ -130,9 +136,23 @@ func (c *Client) GetIntegration(integrationID string) (*Integration, error) {
 	if err != nil {
 		return nil, err
 	}
-	var resp Integration
-	if err := c.Do(req, &resp); err != nil {
+	// The GET endpoint returns a wrapped response:
+	//   {"config": {...}, "integration": {id, name, type, provider, ...}}
+	// whereas create/update return the integration flat. Unmarshal the wrapper and
+	// merge the decrypted config so callers see a consistent flat Integration.
+	var wrapper struct {
+		Config      map[string]interface{} `json:"config"`
+		Integration *Integration           `json:"integration"`
+	}
+	if err := c.Do(req, &wrapper); err != nil {
 		return nil, err
 	}
-	return &resp, nil
+	if wrapper.Integration == nil {
+		return nil, nil
+	}
+	result := *wrapper.Integration
+	if len(result.Config) == 0 {
+		result.Config = wrapper.Config
+	}
+	return &result, nil
 }

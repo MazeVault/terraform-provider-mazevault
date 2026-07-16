@@ -54,6 +54,7 @@ type CreateRotationConfigRequest struct {
 	RotationIntervalDays int                    `json:"rotation_interval_days,omitempty"`
 	NotificationEmails   []string               `json:"notification_emails,omitempty"`
 	PostActions          []PostRotationActionWF `json:"post_actions,omitempty"`
+	SecretCustodyMode    string                 `json:"secret_custody_mode,omitempty"`
 }
 
 // UpdateRotationConfigRequest represents the request body for updating a rotation config.
@@ -63,6 +64,7 @@ type UpdateRotationConfigRequest struct {
 	RotationIntervalDays int                    `json:"rotation_interval_days,omitempty"`
 	NotificationEmails   []string               `json:"notification_emails,omitempty"`
 	PostActions          []PostRotationActionWF `json:"post_actions,omitempty"`
+	SecretCustodyMode    string                 `json:"secret_custody_mode,omitempty"`
 }
 
 // CreateRotationConfig creates a new rotation config for a secret.
@@ -294,16 +296,21 @@ type EntraRotationConfigDetail struct {
 // POST /api/v1/entra/credentials/:id/rotation-config  (create) and
 // PUT  /api/v1/entra/credentials/:id/rotation-config  (update).
 type ConfigureEntraRotationRequest struct {
-	RotationEnabled          bool                   `json:"rotation_enabled"`
-	RotationDaysBeforeExpiry int                    `json:"rotation_days_before_expiry,omitempty"`
-	GracePeriodDays          int                    `json:"grace_period_days,omitempty"`
-	KVIntegrationIDs         []string               `json:"kv_integration_ids,omitempty"`
-	SecretName               string                 `json:"secret_name,omitempty"`
-	SpringEndpoints          []string               `json:"spring_endpoints,omitempty"`
-	WebhookURLs              []string               `json:"webhook_urls,omitempty"`
-	PostRotationActions      []PostRotationActionWF `json:"post_rotation_actions,omitempty"`
-	StagedRotationEnabled    *bool                  `json:"staged_rotation_enabled,omitempty"`
-	SoakWindowHours          *int                   `json:"soak_window_hours,omitempty"`
+	RotationEnabled          bool     `json:"rotation_enabled"`
+	RotationDaysBeforeExpiry int      `json:"rotation_days_before_expiry,omitempty"`
+	GracePeriodDays          int      `json:"grace_period_days,omitempty"`
+	KVIntegrationIDs         []string `json:"kv_integration_ids,omitempty"`
+	SecretName               string   `json:"secret_name,omitempty"`
+	SpringEndpoints          []string `json:"spring_endpoints,omitempty"`
+	WebhookURLs              []string `json:"webhook_urls,omitempty"`
+	// PostRotationActions is intentionally NOT omitempty: the backend distinguishes
+	// "field absent" (fall back to deriving actions from the flat legacy fields) from
+	// "field present but empty" (no post-rotation actions). Callers that treat
+	// post_rotation_actions as the source of truth must always send an explicit
+	// (possibly empty) array so the legacy-derivation path is never triggered.
+	PostRotationActions   []PostRotationActionWF `json:"post_rotation_actions"`
+	StagedRotationEnabled *bool                  `json:"staged_rotation_enabled,omitempty"`
+	SoakWindowHours       *int                   `json:"soak_window_hours,omitempty"`
 }
 
 // GetEntraRotationConfig retrieves the rotation config for an Entra credential.

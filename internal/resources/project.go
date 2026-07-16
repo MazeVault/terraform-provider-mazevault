@@ -9,6 +9,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
@@ -33,7 +34,7 @@ type ProjectResourceModel struct {
 	ID             types.String `tfsdk:"id"`
 	OrganizationID types.String `tfsdk:"organization_id"`
 	Name           types.String `tfsdk:"name"`
-	Environment    types.String `tfsdk:"environment"`
+	Type           types.String `tfsdk:"type"`
 	CreatedAt      types.String `tfsdk:"created_at"`
 }
 
@@ -62,12 +63,13 @@ func (r *ProjectResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				Description: "Project name",
 				Required:    true,
 			},
-			"environment": schema.StringAttribute{
-				Description: "Environment (dev/staging/prod)",
+			"type": schema.StringAttribute{
+				Description: "Project type: `secret` (secret management) or `certificate` (certificate management). Defaults to `secret`. Immutable after creation.",
 				Optional:    true,
 				Computed:    true,
+				Default:     stringdefault.StaticString("secret"),
 				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.UseStateForUnknown(),
+					stringplanmodifier.RequiresReplace(),
 				},
 			},
 			"created_at": schema.StringAttribute{
@@ -110,7 +112,7 @@ func (r *ProjectResource) Create(ctx context.Context, req resource.CreateRequest
 
 	project, err := r.client.CreateProject(
 		plan.Name.ValueString(),
-		plan.Environment.ValueString(),
+		plan.Type.ValueString(),
 		plan.OrganizationID.ValueString(),
 	)
 	if err != nil {
@@ -122,6 +124,9 @@ func (r *ProjectResource) Create(ctx context.Context, req resource.CreateRequest
 	}
 
 	plan.ID = types.StringValue(project.ID)
+	if project.Type != "" {
+		plan.Type = types.StringValue(project.Type)
+	}
 	plan.CreatedAt = types.StringValue(project.CreatedAt.String())
 
 	diags = resp.State.Set(ctx, plan)
@@ -153,10 +158,8 @@ func (r *ProjectResource) Read(ctx context.Context, req resource.ReadRequest, re
 
 	state.OrganizationID = types.StringValue(project.OrganizationID)
 	state.Name = types.StringValue(project.Name)
-	// Only update environment if the API returns a non-empty value
-	// (the backend does not persist environment as a top-level field).
-	if project.Environment != "" {
-		state.Environment = types.StringValue(project.Environment)
+	if project.Type != "" {
+		state.Type = types.StringValue(project.Type)
 	}
 	state.CreatedAt = types.StringValue(project.CreatedAt.String())
 
@@ -176,8 +179,6 @@ func (r *ProjectResource) Update(ctx context.Context, req resource.UpdateRequest
 	updated, err := r.client.UpdateProject(
 		plan.ID.ValueString(),
 		plan.Name.ValueString(),
-		plan.Environment.ValueString(),
-		plan.OrganizationID.ValueString(),
 	)
 	if err != nil {
 		resp.Diagnostics.AddError(
@@ -189,6 +190,9 @@ func (r *ProjectResource) Update(ctx context.Context, req resource.UpdateRequest
 
 	if updated != nil && !updated.CreatedAt.IsZero() {
 		plan.CreatedAt = types.StringValue(updated.CreatedAt.String())
+	}
+	if updated != nil && updated.Type != "" {
+		plan.Type = types.StringValue(updated.Type)
 	}
 
 	diags = resp.State.Set(ctx, plan)

@@ -3,8 +3,10 @@ package resources
 import (
 	"context"
 	"fmt"
+	"time"
 
 	mazevault "github.com/MazeVault/maze-core/sdks/go"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -24,13 +26,22 @@ type CertificateTemplateResource struct {
 	client *mazevault.Client
 }
 
+// CertificateTemplateResourceModel models a certificate-category Project Template.
+//
+// It is created via POST /api/v1/organizations/:id/templates with
+// category="certificates" so it appears in the frontend "Project Templates" view.
+// The backend automatically creates (or reuses) the underlying CertificateTemplate
+// and returns its ID in protocol_config.certificate_template_id.
 type CertificateTemplateResourceModel struct {
-	ID             types.String `tfsdk:"id"`
-	ProjectID      types.String `tfsdk:"project_id"`
-	Name           types.String `tfsdk:"name"`
-	Type           types.String `tfsdk:"type"`
-	ValidityPeriod types.String `tfsdk:"validity_period"`
-	KeyUsage       types.List   `tfsdk:"key_usage"`
+	ID                    types.String `tfsdk:"id"`
+	ProjectID             types.String `tfsdk:"project_id"`
+	OrganizationID        types.String `tfsdk:"organization_id"`
+	Name                  types.String `tfsdk:"name"`
+	Type                  types.String `tfsdk:"type"`
+	ValidityPeriod        types.String `tfsdk:"validity_period"`
+	KeyUsage              types.List   `tfsdk:"key_usage"`
+	ChallengeType         types.String `tfsdk:"challenge_type"`
+	CertificateTemplateID types.String `tfsdk:"certificate_template_id"`
 }
 
 func (r *CertificateTemplateResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -39,17 +50,25 @@ func (r *CertificateTemplateResource) Metadata(ctx context.Context, req resource
 
 func (r *CertificateTemplateResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		MarkdownDescription: "Manages a MazeVault certificate template that defines the profile for issued certificates.",
+		MarkdownDescription: "Manages a certificate-category **Project Template**. The template is created at the " +
+			"organization level (resolved from `project_id`) with category `certificates`, so it appears in the " +
+			"frontend **Project Templates** view. MazeVault automatically creates the underlying certificate " +
+			"template (exposed as `certificate_template_id`).",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:            true,
-				MarkdownDescription: "Unique identifier of the certificate template.",
+				MarkdownDescription: "Unique identifier of the project template.",
 				PlanModifiers:       []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"project_id": schema.StringAttribute{
 				Required:            true,
-				MarkdownDescription: "ID of the project this template belongs to.",
+				MarkdownDescription: "ID of a certificate-management project. Used to resolve the organization the template belongs to. Changing this forces replacement.",
 				PlanModifiers:       []planmodifier.String{stringplanmodifier.RequiresReplace()},
+			},
+			"organization_id": schema.StringAttribute{
+				Computed:            true,
+				MarkdownDescription: "ID of the organization that owns this template (resolved from the project).",
+				PlanModifiers:       []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"name": schema.StringAttribute{
 				Required:            true,
@@ -57,16 +76,27 @@ func (r *CertificateTemplateResource) Schema(_ context.Context, _ resource.Schem
 			},
 			"type": schema.StringAttribute{
 				Required:            true,
-				MarkdownDescription: "Template type (e.g. `tls_server`, `tls_client`, `code_signing`).",
+				MarkdownDescription: "Certificate type / subtype (e.g. `ssl_tls`, `web_server`, `client_auth`, `code_signing`).",
 			},
 			"validity_period": schema.StringAttribute{
 				Required:            true,
-				MarkdownDescription: "Duration string for certificate validity (e.g. `8760h` for 1 year).",
+				MarkdownDescription: "Duration string for certificate validity (e.g. `8760h` for 1 year). Converted to whole days for the template.",
 			},
 			"key_usage": schema.ListAttribute{
 				ElementType:         types.StringType,
 				Optional:            true,
 				MarkdownDescription: "List of X.509 key usage extensions to include (e.g. `digitalSignature`, `keyEncipherment`).",
+			},
+			"challenge_type": schema.StringAttribute{
+				Optional:            true,
+				Computed:            true,
+				MarkdownDescription: "ACME challenge policy used when the issuing CA account is an ACME provider. One of `auto`, `dns-01`, `http-01`, `tls-alpn-01`. Defaults to `auto`. Ignored for non-ACME issuers.",
+				PlanModifiers:       []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
+			},
+			"certificate_template_id": schema.StringAttribute{
+				Computed:            true,
+				MarkdownDescription: "ID of the underlying certificate template automatically created by MazeVault.",
+				PlanModifiers:       []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 		},
 	}
@@ -92,29 +122,32 @@ func (r *CertificateTemplateResource) Create(ctx context.Context, req resource.C
 		return
 	}
 
-	var keyUsage []string
-	if !data.KeyUsage.IsNull() {
-		resp.Diagnostics.Append(data.KeyUsage.ElementsAs(ctx, &keyUsage, false)...)
-		if resp.Diagnostics.HasError() {
-			return
-		}
-	}
-
-	createReq := &mazevault.CreateCertificateTemplateRequest{
-		Name:           data.Name.ValueString(),
-		Type:           data.Type.ValueString(),
-		ValidityPeriod: data.ValidityPeriod.ValueString(),
-		KeyUsage:       keyUsage,
-	}
-
-	tmpl, err := r.client.CreateProjectCertificateTemplate(data.ProjectID.ValueString(), createReq)
+	// Certificate templates are organization-scoped project templates. Resolve the
+	// organization from the project.
+	project, err := r.client.GetProject(data.ProjectID.ValueString())
 	if err != nil {
-		resp.Diagnostics.AddError("Create Template Error", fmt.Sprintf("Unable to create certificate template: %s", err))
+		resp.Diagnostics.AddError("Create Template Error", fmt.Sprintf("Unable to resolve project %s: %s", data.ProjectID.ValueString(), err))
+		return
+	}
+	if project == nil {
+		resp.Diagnostics.AddError("Create Template Error", fmt.Sprintf("Project %s not found", data.ProjectID.ValueString()))
+		return
+	}
+
+	input := r.buildInput(ctx, &data, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	tmpl, err := r.client.CreateOrgProjectTemplate(project.OrganizationID, input)
+	if err != nil {
+		resp.Diagnostics.AddError("Create Template Error", fmt.Sprintf("Unable to create certificate project template: %s", err))
 		return
 	}
 
 	data.ID = types.StringValue(tmpl.ID)
-
+	data.OrganizationID = types.StringValue(project.OrganizationID)
+	applyProjectTemplateComputed(&data, tmpl)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
@@ -125,9 +158,18 @@ func (r *CertificateTemplateResource) Read(ctx context.Context, req resource.Rea
 		return
 	}
 
-	tmpl, err := r.client.GetCertificateTemplate(data.ID.ValueString())
+	orgID := data.OrganizationID.ValueString()
+	if orgID == "" {
+		// Fall back to resolving via the project (e.g. after import).
+		if project, err := r.client.GetProject(data.ProjectID.ValueString()); err == nil && project != nil {
+			orgID = project.OrganizationID
+			data.OrganizationID = types.StringValue(orgID)
+		}
+	}
+
+	tmpl, err := r.client.GetOrgProjectTemplate(orgID, data.ID.ValueString())
 	if err != nil {
-		resp.Diagnostics.AddError("Read Template Error", fmt.Sprintf("Unable to read certificate template: %s", err))
+		resp.Diagnostics.AddError("Read Template Error", fmt.Sprintf("Unable to read certificate project template: %s", err))
 		return
 	}
 	if tmpl == nil {
@@ -136,16 +178,10 @@ func (r *CertificateTemplateResource) Read(ctx context.Context, req resource.Rea
 	}
 
 	data.Name = types.StringValue(tmpl.Name)
-	data.Type = types.StringValue(tmpl.Type)
-	data.ValidityPeriod = types.StringValue(tmpl.ValidityPeriod)
-	if tmpl.ProjectID != nil {
-		data.ProjectID = types.StringValue(*tmpl.ProjectID)
-	}
-
-	keyUsageList, diags := types.ListValueFrom(ctx, types.StringType, tmpl.KeyUsage)
-	resp.Diagnostics.Append(diags...)
-	data.KeyUsage = keyUsageList
-
+	// `type`/`validity_period` are stored in protocol_config as cert_type/validity_days
+	// and are not round-tripped in the same representation, so preserve the
+	// configured values instead of overwriting them.
+	applyProjectTemplateComputed(&data, tmpl)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
@@ -157,26 +193,20 @@ func (r *CertificateTemplateResource) Update(ctx context.Context, req resource.U
 		return
 	}
 
-	var keyUsage []string
-	if !plan.KeyUsage.IsNull() {
-		resp.Diagnostics.Append(plan.KeyUsage.ElementsAs(ctx, &keyUsage, false)...)
-		if resp.Diagnostics.HasError() {
-			return
-		}
+	input := r.buildInput(ctx, &plan, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
 	}
 
-	_, err := r.client.UpdateCertificateTemplate(state.ID.ValueString(), &mazevault.CreateCertificateTemplateRequest{
-		Name:           plan.Name.ValueString(),
-		Type:           plan.Type.ValueString(),
-		ValidityPeriod: plan.ValidityPeriod.ValueString(),
-		KeyUsage:       keyUsage,
-	})
+	tmpl, err := r.client.UpdateOrgProjectTemplate(state.ID.ValueString(), input)
 	if err != nil {
-		resp.Diagnostics.AddError("Update Template Error", fmt.Sprintf("Unable to update certificate template: %s", err))
+		resp.Diagnostics.AddError("Update Template Error", fmt.Sprintf("Unable to update certificate project template: %s", err))
 		return
 	}
 
 	plan.ID = state.ID
+	plan.OrganizationID = state.OrganizationID
+	applyProjectTemplateComputed(&plan, tmpl)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -187,10 +217,73 @@ func (r *CertificateTemplateResource) Delete(ctx context.Context, req resource.D
 		return
 	}
 
-	if err := r.client.DeleteCertificateTemplate(data.ID.ValueString()); err != nil {
-		resp.Diagnostics.AddError("Delete Template Error", fmt.Sprintf("Unable to delete certificate template: %s", err))
+	if err := r.client.DeleteOrgProjectTemplate(data.ID.ValueString()); err != nil && !mazevault.IsNotFoundError(err) {
+		resp.Diagnostics.AddError("Delete Template Error", fmt.Sprintf("Unable to delete certificate project template: %s", err))
 		return
 	}
+}
+
+// buildInput assembles the ProjectTemplateInput (category="certificates") from the
+// resource model. The certificate profile fields live under protocol_config, which
+// the backend converts into the underlying CertificateTemplate.
+func (r *CertificateTemplateResource) buildInput(ctx context.Context, data *CertificateTemplateResourceModel, diags *diag.Diagnostics) *mazevault.ProjectTemplateInput {
+	var keyUsage []string
+	if !data.KeyUsage.IsNull() && !data.KeyUsage.IsUnknown() {
+		diags.Append(data.KeyUsage.ElementsAs(ctx, &keyUsage, false)...)
+	}
+
+	protocol := map[string]interface{}{
+		"cert_type":     data.Type.ValueString(),
+		"key_algorithm": "RSA",
+		"key_size":      2048,
+	}
+	if days, ok := parseValidityDays(data.ValidityPeriod.ValueString()); ok {
+		protocol["validity_days"] = days
+	}
+	if len(keyUsage) > 0 {
+		protocol["key_usage"] = keyUsage
+	}
+	if ct := data.ChallengeType.ValueString(); ct != "" && !data.ChallengeType.IsUnknown() {
+		protocol["challenge_type"] = ct
+	}
+
+	return &mazevault.ProjectTemplateInput{
+		Name:           data.Name.ValueString(),
+		Category:       "certificates",
+		Subtype:        data.Type.ValueString(),
+		ProtocolConfig: protocol,
+	}
+}
+
+// applyProjectTemplateComputed populates computed fields from the API response.
+func applyProjectTemplateComputed(data *CertificateTemplateResourceModel, tmpl *mazevault.ProjectTemplate) {
+	if tmpl.ProtocolConfig != nil {
+		if ctid, ok := tmpl.ProtocolConfig["certificate_template_id"].(string); ok && ctid != "" {
+			data.CertificateTemplateID = types.StringValue(ctid)
+		}
+		if data.ChallengeType.IsNull() || data.ChallengeType.IsUnknown() {
+			if ct, ok := tmpl.ProtocolConfig["challenge_type"].(string); ok && ct != "" {
+				data.ChallengeType = types.StringValue(ct)
+			}
+		}
+	}
+	if data.ChallengeType.IsNull() || data.ChallengeType.IsUnknown() {
+		data.ChallengeType = types.StringValue("auto")
+	}
+	if data.CertificateTemplateID.IsUnknown() {
+		data.CertificateTemplateID = types.StringNull()
+	}
+}
+
+// parseValidityDays converts a Go duration string (e.g. "8760h") to whole days.
+func parseValidityDays(s string) (int, bool) {
+	if s == "" {
+		return 0, false
+	}
+	if d, err := time.ParseDuration(s); err == nil {
+		return int(d.Hours() / 24), true
+	}
+	return 0, false
 }
 
 // ImportState implements resource.ResourceWithImportState.

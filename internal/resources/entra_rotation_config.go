@@ -11,6 +11,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64default"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/listplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -97,23 +98,35 @@ func (r *EntraRotationConfigResource) Schema(_ context.Context, _ resource.Schem
 				Description: "Number of days the old credential remains active after the new one is created.  Defaults to 7.",
 			},
 			"kv_integration_ids": schema.ListAttribute{
-				Optional:    true,
+				Computed:    true,
 				ElementType: types.StringType,
-				Description: "IDs of Key Vault integrations that should receive the new credential value after rotation.",
+				Description: "Read-only mirror of the Key Vault integration IDs derived from `post_rotation_actions` entries of type `azure_keyvault`. To configure Key Vault write-back, add an `azure_keyvault` action to `post_rotation_actions` instead of setting this field.",
+				PlanModifiers: []planmodifier.List{
+					listplanmodifier.UseStateForUnknown(),
+				},
 			},
 			"secret_name": schema.StringAttribute{
-				Optional:    true,
-				Description: "Name of the secret in the target Key Vault.  Required when `kv_integration_ids` is set.",
+				Computed:    true,
+				Description: "Read-only mirror of the target Key Vault secret name derived from the `azure_keyvault` post-rotation action.",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
 			},
 			"spring_endpoints": schema.ListAttribute{
-				Optional:    true,
+				Computed:    true,
 				ElementType: types.StringType,
-				Description: "URLs of Spring Boot Actuator `/actuator/refresh` endpoints to call after credential rotation.",
+				Description: "Read-only mirror of the Spring Boot Actuator refresh URLs derived from `post_rotation_actions` entries of type `spring_actuator_refresh`.",
+				PlanModifiers: []planmodifier.List{
+					listplanmodifier.UseStateForUnknown(),
+				},
 			},
 			"webhook_urls": schema.ListAttribute{
-				Optional:    true,
+				Computed:    true,
 				ElementType: types.StringType,
-				Description: "Webhook URLs to call after rotation.  Receives a JSON payload with the new credential metadata.",
+				Description: "Read-only mirror of the webhook URLs derived from `post_rotation_actions` entries of type `webhook`.",
+				PlanModifiers: []planmodifier.List{
+					listplanmodifier.UseStateForUnknown(),
+				},
 			},
 			"staged_rotation_enabled": schema.BoolAttribute{
 				Optional:    true,
@@ -137,32 +150,40 @@ func (r *EntraRotationConfigResource) Schema(_ context.Context, _ resource.Schem
 		},
 		Blocks: map[string]schema.Block{
 			"post_rotation_actions": schema.ListNestedBlock{
-				Description: "Ordered list of actions to execute after a successful rotation.",
+				Description: "Ordered list of delivery actions to execute after a successful rotation. " +
+					"This is the single source of truth for post-rotation delivery: if no blocks are " +
+					"defined, nothing is delivered. Key Vault write-back and Spring refresh are expressed " +
+					"as actions here (see `type`), not via separate top-level fields.",
 				NestedObject: schema.NestedBlockObject{
 					Attributes: map[string]schema.Attribute{
 						"type": schema.StringAttribute{
 							Required:    true,
-							Description: "Action type. Supported values: `spring_actuator_refresh`, `webhook`, `agent_command`, `agent_secret_sync`, `iis_recycle`.",
+							Description: "Action type. Supported values: `azure_keyvault` (config: `integration_id`, `secret_name`), `spring_actuator_refresh` (config: `actuator_url`), `webhook` (config: `url`), `kubernetes_secret` (config: `namespace`, `secret_name`, `key_name`), `agent_secret_sync`, `iis_recycle`.",
 						},
 						"config": schema.MapAttribute{
 							Optional:    true,
+							Computed:    true,
 							ElementType: types.StringType,
-							Description: "String key/value configuration map for the action.",
+							Description: "String key/value configuration map for the action. The server may add normalized defaults (e.g. `file_format` for `agent_secret_sync`).",
 						},
 						"order": schema.Int64Attribute{
 							Optional:    true,
-							Description: "Execution order (lower numbers run first).",
+							Computed:    true,
+							Description: "Execution order (lower numbers run first). Server-assigned when omitted.",
 						},
 						"on_failure": schema.StringAttribute{
 							Optional:    true,
-							Description: "Behaviour on failure: `continue`, `rollback`, or `notify`.",
+							Computed:    true,
+							Description: "Behaviour on failure: `continue`, `abort`, or `retry`. Defaults to `continue`.",
 						},
 						"gateway_id": schema.StringAttribute{
 							Optional:    true,
+							Computed:    true,
 							Description: "Pin this action to a specific gateway ID instead of using environment-based routing.",
 						},
 						"target_environment": schema.StringAttribute{
 							Optional:    true,
+							Computed:    true,
 							Description: "Override the environment context used when resolving which gateway executes this action.",
 						},
 					},
@@ -280,6 +301,10 @@ func (r *EntraRotationConfigResource) Delete(ctx context.Context, req resource.D
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
 // buildEntraRotationRequest converts the Terraform model to the SDK request struct.
+//
+// post_rotation_actions is the single writable delivery surface. It is ALWAYS sent
+// explicitly (as a possibly-empty array) so the backend never falls back to
+// deriving actions from the legacy flat fields (which are read-only mirrors here).
 func buildEntraRotationRequest(ctx context.Context, data *EntraRotationConfigModel, d *diag.Diagnostics) *mazevault.ConfigureEntraRotationRequest {
 	soakWindowHours := int(data.SoakWindowHours.ValueInt64())
 	stagedEnabled := data.StagedRotationEnabled.ValueBool()
@@ -288,27 +313,17 @@ func buildEntraRotationRequest(ctx context.Context, data *EntraRotationConfigMod
 		RotationEnabled:          data.RotationEnabled.ValueBool(),
 		RotationDaysBeforeExpiry: int(data.RotationDaysBeforeExpiry.ValueInt64()),
 		GracePeriodDays:          int(data.GracePeriodDays.ValueInt64()),
-		SecretName:               data.SecretName.ValueString(),
 		StagedRotationEnabled:    &stagedEnabled,
 		SoakWindowHours:          &soakWindowHours,
 	}
 
-	var kvIDs []string
-	d.Append(data.KVIntegrationIDs.ElementsAs(ctx, &kvIDs, false)...)
-	req.KVIntegrationIDs = kvIDs
-
-	var springEndpoints []string
-	d.Append(data.SpringEndpoints.ElementsAs(ctx, &springEndpoints, false)...)
-	req.SpringEndpoints = springEndpoints
-
-	var webhookURLs []string
-	d.Append(data.WebhookURLs.ElementsAs(ctx, &webhookURLs, false)...)
-	req.WebhookURLs = webhookURLs
-
+	actions := make([]mazevault.PostRotationActionWF, 0, len(data.PostRotationActions))
 	for _, a := range data.PostRotationActions {
 		cfg := make(map[string]string)
-		d.Append(a.Config.ElementsAs(ctx, &cfg, false)...)
-		req.PostRotationActions = append(req.PostRotationActions, mazevault.PostRotationActionWF{
+		if !a.Config.IsNull() && !a.Config.IsUnknown() {
+			d.Append(a.Config.ElementsAs(ctx, &cfg, false)...)
+		}
+		actions = append(actions, mazevault.PostRotationActionWF{
 			Type:              a.Type.ValueString(),
 			Config:            cfg,
 			Order:             int(a.Order.ValueInt64()),
@@ -317,6 +332,8 @@ func buildEntraRotationRequest(ctx context.Context, data *EntraRotationConfigMod
 			TargetEnvironment: a.TargetEnvironment.ValueString(),
 		})
 	}
+	// Non-nil even when empty → serializes as "post_rotation_actions": [].
+	req.PostRotationActions = actions
 
 	return req
 }

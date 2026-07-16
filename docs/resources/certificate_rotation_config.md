@@ -60,6 +60,28 @@ resource "mazevault_certificate_rotation_config" "internal_ca" {
 }
 ```
 
+### Deploy the renewed certificate into an Azure Key Vault
+
+The renewed certificate is written into an `azure_key_vault` integration on each
+successful renewal via a `post_rotation_actions` entry of type `azure_keyvault`.
+
+```hcl
+resource "mazevault_certificate_rotation_config" "app_tls" {
+  certificate_id    = mazevault_certificate.app_tls.id
+  enabled           = true
+  renewal_lead_days = 30
+
+  post_rotation_actions {
+    type  = "azure_keyvault"
+    order = 1
+    config = {
+      integration_id = mazevault_integration.kv.id
+      secret_name    = "app-tls"
+    }
+  }
+}
+```
+
 ## Argument Reference
 
 - `certificate_id` - (Required, ForceNew) The UUID of the certificate to configure. Changing this value destroys and recreates the resource.
@@ -77,7 +99,7 @@ resource "mazevault_certificate_rotation_config" "internal_ca" {
 Each `post_rotation_actions` block supports:
 
 - `type` - (Required) Action type. Supported values: `spring_actuator_refresh`, `webhook`, `agent_command`, `shell_script`, `azure_keyvault`, `kubernetes_secret`, `iis_recycle`.
-- `config` - (Optional) String key/value map with action-specific configuration parameters.
+- `config` - (Optional) String key/value map with action-specific configuration parameters. For `azure_keyvault` (certificate deployment) use `integration_id` (the target `mazevault_integration` id) and `secret_name` (the Key Vault secret/certificate name).
 - `order` - (Optional) Execution order. Lower numbers run first.
 - `on_failure` - (Optional) Behaviour when this action fails: `continue`, `rollback`, or `notify`.
 - `gateway_id` - (Optional) Pin this action to a specific gateway ID instead of using environment-based routing.

@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	mazevault "github.com/MazeVault/maze-core/sdks/go"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -27,7 +28,11 @@ type IntegrationModel struct {
 	Type        types.String `tfsdk:"type"`
 	Provider    types.String `tfsdk:"provider_name"`
 	Environment types.String `tfsdk:"environment"`
-	// Azure DevOps config fields
+	// Generic configuration (works for any provider: Azure Key Vault, Entra, etc.).
+	Config                types.Map    `tfsdk:"config"`
+	SensitiveConfig       types.Map    `tfsdk:"sensitive_config"`
+	InteractiveAuthMethod types.String `tfsdk:"interactive_auth_method"`
+	// Azure DevOps config fields (kept for backward compatibility).
 	AzureOrg             types.String `tfsdk:"azure_org"`
 	AzureProject         types.String `tfsdk:"azure_project"`
 	AzurePAT             types.String `tfsdk:"azure_pat"`
@@ -38,6 +43,43 @@ type IntegrationModel struct {
 	AzureFilePath        types.String `tfsdk:"azure_file_path"`
 }
 
+// buildIntegrationConfig merges the typed azure_* fields with the generic config
+// and sensitive_config maps into a single config payload. The backend accepts an
+// arbitrary config map and branches by type/provider, so this supports any
+// integration type (Azure Key Vault, Entra, Azure DevOps, …).
+func buildIntegrationConfig(ctx context.Context, d IntegrationModel, diags *diag.Diagnostics) map[string]interface{} {
+	cfg := map[string]interface{}{}
+	set := func(k string, v types.String) {
+		if !v.IsNull() {
+			cfg[k] = v.ValueString()
+		}
+	}
+	set("azure_org", d.AzureOrg)
+	set("azure_project", d.AzureProject)
+	set("azure_pat", d.AzurePAT)
+	set("azure_mode", d.AzureMode)
+	set("azure_variable_group_id", d.AzureVariableGroupID)
+	set("azure_repo", d.AzureRepo)
+	set("azure_branch", d.AzureBranch)
+	set("azure_file_path", d.AzureFilePath)
+
+	if !d.Config.IsNull() && !d.Config.IsUnknown() {
+		m := map[string]string{}
+		diags.Append(d.Config.ElementsAs(ctx, &m, false)...)
+		for k, v := range m {
+			cfg[k] = v
+		}
+	}
+	if !d.SensitiveConfig.IsNull() && !d.SensitiveConfig.IsUnknown() {
+		m := map[string]string{}
+		diags.Append(d.SensitiveConfig.ElementsAs(ctx, &m, false)...)
+		for k, v := range m {
+			cfg[k] = v
+		}
+	}
+	return cfg
+}
+
 func (r *IntegrationResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
 	resp.TypeName = req.ProviderTypeName + "_integration"
 }
@@ -45,7 +87,7 @@ func (r *IntegrationResource) Metadata(_ context.Context, req resource.MetadataR
 func (r *IntegrationResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		Attributes: map[string]schema.Attribute{
-			"id":            schema.StringAttribute{Computed: true},
+			"id":            schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
 			"project_id":    schema.StringAttribute{Required: true},
 			"name":          schema.StringAttribute{Required: true},
 			"type":          schema.StringAttribute{Required: true},
@@ -55,6 +97,21 @@ func (r *IntegrationResource) Schema(_ context.Context, _ resource.SchemaRequest
 				// UpdateIntegration does not send environment in the PUT body;
 				// changes to this field must recreate the resource.
 				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()},
+			},
+			"config": schema.MapAttribute{
+				Optional:            true,
+				ElementType:         types.StringType,
+				MarkdownDescription: "Generic non-secret configuration for the integration (e.g. `vault_url`, `tenant_id`, `client_id` for Azure Key Vault / Entra). Merged with the typed `azure_*` fields.",
+			},
+			"sensitive_config": schema.MapAttribute{
+				Optional:            true,
+				Sensitive:           true,
+				ElementType:         types.StringType,
+				MarkdownDescription: "Generic secret configuration values (e.g. `client_secret`). Write-only; not refreshed from the server.",
+			},
+			"interactive_auth_method": schema.StringAttribute{
+				Optional:            true,
+				MarkdownDescription: "Interactive auth method (e.g. `on_behalf_of`). When `on_behalf_of`, tenant/client credentials are injected server-side from the SSO configuration.",
 			},
 			"azure_org":               schema.StringAttribute{Optional: true},
 			"azure_project":           schema.StringAttribute{Optional: true},
@@ -86,21 +143,11 @@ func (r *IntegrationResource) Create(ctx context.Context, req resource.CreateReq
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	cfg := map[string]interface{}{}
-	set := func(k string, v types.String) {
-		if !v.IsNull() {
-			cfg[k] = v.ValueString()
-		}
+	cfg := buildIntegrationConfig(ctx, data, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
 	}
-	set("azure_org", data.AzureOrg)
-	set("azure_project", data.AzureProject)
-	set("azure_pat", data.AzurePAT)
-	set("azure_mode", data.AzureMode)
-	set("azure_variable_group_id", data.AzureVariableGroupID)
-	set("azure_repo", data.AzureRepo)
-	set("azure_branch", data.AzureBranch)
-	set("azure_file_path", data.AzureFilePath)
-	created, err := r.client.CreateIntegration(data.ProjectID.ValueString(), data.Name.ValueString(), data.Type.ValueString(), data.Provider.ValueString(), data.Environment.ValueString(), cfg)
+	created, err := r.client.CreateIntegration(data.ProjectID.ValueString(), data.Name.ValueString(), data.Type.ValueString(), data.Provider.ValueString(), data.Environment.ValueString(), cfg, data.InteractiveAuthMethod.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError("Create Integration Error", err.Error())
 		return
@@ -164,22 +211,12 @@ func (r *IntegrationResource) Update(ctx context.Context, req resource.UpdateReq
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	cfg := map[string]interface{}{}
-	set := func(k string, v types.String) {
-		if !v.IsNull() {
-			cfg[k] = v.ValueString()
-		}
+	cfg := buildIntegrationConfig(ctx, plan, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
 	}
-	set("azure_org", plan.AzureOrg)
-	set("azure_project", plan.AzureProject)
-	set("azure_pat", plan.AzurePAT)
-	set("azure_mode", plan.AzureMode)
-	set("azure_variable_group_id", plan.AzureVariableGroupID)
-	set("azure_repo", plan.AzureRepo)
-	set("azure_branch", plan.AzureBranch)
-	set("azure_file_path", plan.AzureFilePath)
 
-	_, err := r.client.UpdateIntegration(state.ID.ValueString(), plan.Name.ValueString(), plan.Type.ValueString(), plan.Provider.ValueString(), cfg)
+	_, err := r.client.UpdateIntegration(state.ID.ValueString(), plan.Name.ValueString(), plan.Type.ValueString(), plan.Provider.ValueString(), cfg, plan.InteractiveAuthMethod.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError("Update Integration Error", err.Error())
 		return

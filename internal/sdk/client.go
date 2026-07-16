@@ -60,6 +60,10 @@ func (c *Client) Do(req *http.Request, v interface{}) error {
 	}
 
 	if v != nil {
+		if len(body) == 0 {
+			// No content (e.g. 204 No Content) — nothing to decode.
+			return nil
+		}
 		if err := json.Unmarshal(body, v); err != nil {
 			return err
 		}

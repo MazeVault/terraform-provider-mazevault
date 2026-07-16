@@ -227,6 +227,8 @@ func (p *MazeVaultProvider) Resources(ctx context.Context) []func() resource.Res
 		resources.NewEntraRotationConfigResource,
 		// Sync Rules
 		resources.NewSyncRuleResource,
+		// HSM/KMS Device Management
+		resources.NewHSMDeviceResource,
 	}
 }
 
@@ -260,6 +262,8 @@ func (p *MazeVaultProvider) DataSources(ctx context.Context) []func() datasource
 		datasources.NewEnvironmentsDataSource,
 		// Secrets read-only
 		datasources.NewSecretDataSource,
+		// HSM/KMS Devices
+		datasources.NewHSMDevicesDataSource,
 	}
 }
 

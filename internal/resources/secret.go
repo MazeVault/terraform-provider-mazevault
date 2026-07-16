@@ -30,17 +30,53 @@ type SecretResource struct {
 
 // SecretResourceModel maps the resource schema data.
 type SecretResourceModel struct {
-	ID          types.String   `tfsdk:"id"`
-	ProjectID   types.String   `tfsdk:"project_id"`
-	Key         types.String   `tfsdk:"key"`
-	Value       types.String   `tfsdk:"value"`
-	Environment types.String   `tfsdk:"environment"`
-	TTLHours    types.Int64    `tfsdk:"ttl_hours"`
-	Metadata    types.Map      `tfsdk:"metadata"`
-	Version     types.Int64    `tfsdk:"version"`
-	Status      types.String   `tfsdk:"status"`
-	CreatedAt   types.String   `tfsdk:"created_at"`
-	Rotation    *RotationModel `tfsdk:"rotation"`
+	ID          types.String         `tfsdk:"id"`
+	ProjectID   types.String         `tfsdk:"project_id"`
+	Key         types.String         `tfsdk:"key"`
+	Value       types.String         `tfsdk:"value"`
+	Environment types.String         `tfsdk:"environment"`
+	TTLHours    types.Int64          `tfsdk:"ttl_hours"`
+	Metadata    types.Map            `tfsdk:"metadata"`
+	Version     types.Int64          `tfsdk:"version"`
+	Status      types.String         `tfsdk:"status"`
+	CreatedAt   types.String         `tfsdk:"created_at"`
+	Rotation    *RotationModel       `tfsdk:"rotation"`
+	Generate    *SecretGenerateModel `tfsdk:"generate"`
+}
+
+// SecretGenerateModel requests server-side value generation.
+type SecretGenerateModel struct {
+	Length         types.Int64  `tfsdk:"length"`
+	IncludeUpper   types.Bool   `tfsdk:"include_upper"`
+	IncludeLower   types.Bool   `tfsdk:"include_lower"`
+	IncludeDigits  types.Bool   `tfsdk:"include_digits"`
+	IncludeSymbols types.Bool   `tfsdk:"include_symbols"`
+	ExcludedChars  types.String `tfsdk:"excluded_chars"`
+}
+
+// toSDK converts the generation model to the SDK spec.
+func (g *SecretGenerateModel) toSDK() *mazevault.SecretGenerate {
+	spec := &mazevault.SecretGenerate{
+		Length:        int(g.Length.ValueInt64()),
+		ExcludedChars: g.ExcludedChars.ValueString(),
+	}
+	if !g.IncludeUpper.IsNull() && !g.IncludeUpper.IsUnknown() {
+		v := g.IncludeUpper.ValueBool()
+		spec.IncludeUpper = &v
+	}
+	if !g.IncludeLower.IsNull() && !g.IncludeLower.IsUnknown() {
+		v := g.IncludeLower.ValueBool()
+		spec.IncludeLower = &v
+	}
+	if !g.IncludeDigits.IsNull() && !g.IncludeDigits.IsUnknown() {
+		v := g.IncludeDigits.ValueBool()
+		spec.IncludeDigits = &v
+	}
+	if !g.IncludeSymbols.IsNull() && !g.IncludeSymbols.IsUnknown() {
+		v := g.IncludeSymbols.ValueBool()
+		spec.IncludeSymbols = &v
+	}
+	return spec
 }
 
 type RotationModel struct {
@@ -76,8 +112,8 @@ func (r *SecretResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 				Required:    true,
 			},
 			"value": schema.StringAttribute{
-				Description: "Secret value (sensitive)",
-				Required:    true,
+				Description: "Secret value (sensitive). Required unless `generate` is set. Omit this when using server-side generation so the plaintext never enters Terraform state.",
+				Optional:    true,
 				Sensitive:   true,
 			},
 			"environment": schema.StringAttribute{
@@ -131,6 +167,36 @@ func (r *SecretResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 						Description: "Emails to notify on rotation failure",
 						Optional:    true,
 						ElementType: types.StringType,
+					},
+				},
+			},
+			"generate": schema.SingleNestedAttribute{
+				Description: "Request server-side value generation. Mutually exclusive with `value`. The plaintext is generated inside MazeVault and, in Orchestrator Mode, offloaded to the external provider.",
+				Optional:    true,
+				Attributes: map[string]schema.Attribute{
+					"length": schema.Int64Attribute{
+						Description: "Length of the generated value. Defaults to 40.",
+						Optional:    true,
+					},
+					"include_upper": schema.BoolAttribute{
+						Description: "Include uppercase letters. Defaults to true.",
+						Optional:    true,
+					},
+					"include_lower": schema.BoolAttribute{
+						Description: "Include lowercase letters. Defaults to true.",
+						Optional:    true,
+					},
+					"include_digits": schema.BoolAttribute{
+						Description: "Include digits. Defaults to true.",
+						Optional:    true,
+					},
+					"include_symbols": schema.BoolAttribute{
+						Description: "Include DB/URL-safe symbols. Defaults to true.",
+						Optional:    true,
+					},
+					"excluded_chars": schema.StringAttribute{
+						Description: "Characters to exclude from the generated value.",
+						Optional:    true,
 					},
 				},
 			},
@@ -192,15 +258,40 @@ func (r *SecretResource) Create(ctx context.Context, req resource.CreateRequest,
 		}
 	}
 
-	secret, err := r.client.CreateSecret(
-		plan.ProjectID.ValueString(),
-		plan.Key.ValueString(),
-		plan.Value.ValueString(),
-		plan.Environment.ValueString(),
-		int(plan.TTLHours.ValueInt64()),
-		metadata,
-		rotation,
-	)
+	// Exactly one of value / generate must be supplied.
+	hasValue := !plan.Value.IsNull() && plan.Value.ValueString() != ""
+	hasGenerate := plan.Generate != nil
+	if hasValue == hasGenerate {
+		resp.Diagnostics.AddError(
+			"Invalid Secret Configuration",
+			"Exactly one of 'value' or 'generate' must be set.",
+		)
+		return
+	}
+
+	var secret *mazevault.CreateSecretResponse
+	var err error
+	if hasGenerate {
+		secret, err = r.client.CreateSecretGenerated(
+			plan.ProjectID.ValueString(),
+			plan.Key.ValueString(),
+			plan.Environment.ValueString(),
+			int(plan.TTLHours.ValueInt64()),
+			metadata,
+			rotation,
+			plan.Generate.toSDK(),
+		)
+	} else {
+		secret, err = r.client.CreateSecret(
+			plan.ProjectID.ValueString(),
+			plan.Key.ValueString(),
+			plan.Value.ValueString(),
+			plan.Environment.ValueString(),
+			int(plan.TTLHours.ValueInt64()),
+			metadata,
+			rotation,
+		)
+	}
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Error creating secret",

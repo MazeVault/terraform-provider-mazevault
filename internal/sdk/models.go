@@ -63,6 +63,12 @@ type CreateProjectRequest struct {
 	OrganizationID string `json:"organization_id,omitempty"`
 }
 
+// UpdateProjectRequest represents the request to update a project's mutable
+// fields via PUT /api/v1/projects/:id. Project type is immutable server-side.
+type UpdateProjectRequest struct {
+	Name string `json:"name,omitempty"`
+}
+
 // Organization represents an organization
 type Organization struct {
 	ID        string    `json:"id"`
@@ -102,12 +108,26 @@ type RotationConfig struct {
 // CreateSecretRequest represents the request to create a secret
 type CreateSecretRequest struct {
 	Key         string            `json:"key"`
-	Value       string            `json:"value"`
+	Value       string            `json:"value,omitempty"`
 	ProjectID   string            `json:"project_id"`
 	Environment string            `json:"environment,omitempty"`
 	TTLHours    int               `json:"ttl_hours,omitempty"`
 	Metadata    map[string]string `json:"metadata,omitempty"`
 	Rotation    *RotationConfig   `json:"rotation,omitempty"`
+	Generate    *SecretGenerate   `json:"generate,omitempty"`
+}
+
+// SecretGenerate requests cryptographically-secure server-side value generation.
+// When set, Value must be empty; the plaintext is generated in the vault and never
+// returned by the create call.
+type SecretGenerate struct {
+	Length         int    `json:"length,omitempty"`
+	IncludeUpper   *bool  `json:"include_upper,omitempty"`
+	IncludeLower   *bool  `json:"include_lower,omitempty"`
+	IncludeDigits  *bool  `json:"include_digits,omitempty"`
+	IncludeSymbols *bool  `json:"include_symbols,omitempty"`
+	ExcludedChars  string `json:"excluded_chars,omitempty"`
+	AllowedSpecial string `json:"allowed_special,omitempty"`
 }
 
 // CreateSecretResponse represents the response after creating a secret
@@ -340,6 +360,7 @@ type CAAccount struct {
 	ID             string                 `json:"id"`
 	OrganizationID string                 `json:"organization_id"`
 	Name           string                 `json:"name"`
+	DisplayName    string                 `json:"display_name"`
 	ProviderType   string                 `json:"provider_type"`
 	Config         map[string]interface{} `json:"config"`
 	Status         string                 `json:"status"`
@@ -347,11 +368,15 @@ type CAAccount struct {
 	UpdatedAt      time.Time              `json:"updated_at"`
 }
 
-// CreateCAAccountRequest is the request body for connecting a CA account
+// CreateCAAccountRequest is the request body for connecting a CA account.
+// The backend expects credentials (encrypted at rest) and non-secret settings
+// separately; display_name identifies the account.
 type CreateCAAccountRequest struct {
-	Name         string                 `json:"name"`
+	Name         string                 `json:"name,omitempty"`
+	DisplayName  string                 `json:"display_name,omitempty"`
 	ProviderType string                 `json:"provider_type"`
-	Config       map[string]interface{} `json:"config,omitempty"`
+	Credentials  map[string]string      `json:"credentials,omitempty"`
+	Settings     map[string]interface{} `json:"settings,omitempty"`
 }
 
 // ConfigTemplate represents an org-level config management template

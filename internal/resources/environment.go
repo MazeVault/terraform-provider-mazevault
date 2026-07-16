@@ -57,7 +57,8 @@ func (r *EnvironmentResource) Schema(_ context.Context, _ resource.SchemaRequest
 			"slug": schema.StringAttribute{
 				Optional:            true,
 				Computed:            true,
-				MarkdownDescription: "URL-safe slug for the environment. Derived from name if omitted.",
+				MarkdownDescription: "URL-safe slug for the environment. Derived from name if omitted. Immutable after creation.",
+				PlanModifiers:       []planmodifier.String{stringplanmodifier.RequiresReplace(), stringplanmodifier.UseStateForUnknown()},
 			},
 			"is_production": schema.BoolAttribute{
 				Optional:            true,
@@ -158,13 +159,25 @@ func (r *EnvironmentResource) Update(ctx context.Context, req resource.UpdateReq
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	if _, err := r.client.UpdateEnvironment(state.OrganizationID.ValueString(), state.ID.ValueString(), &mazevault.UpdateEnvironmentRequest{
-		Name: plan.Name.ValueString(),
-	}); err != nil {
+	// The backend environment PATCH only accepts is_production /
+	// incident_auto_escalation and rejects a name-only body. The name and slug are
+	// immutable (RequiresReplace), so only these two metadata flags are updatable.
+	isProd := plan.IsProduction.ValueBool()
+	incidentEsc := plan.IncidentAutoEscalation.ValueBool()
+	env, err := r.client.UpdateEnvironment(state.OrganizationID.ValueString(), state.ID.ValueString(), &mazevault.UpdateEnvironmentRequest{
+		IsProduction:           &isProd,
+		IncidentAutoEscalation: &incidentEsc,
+	})
+	if err != nil {
 		resp.Diagnostics.AddError("Update Environment Error", fmt.Sprintf("Unable to update environment: %s", err))
 		return
 	}
 	plan.ID = state.ID
+	if env != nil {
+		plan.Slug = types.StringValue(env.Slug)
+		plan.IsProduction = types.BoolValue(env.IsProduction)
+		plan.IncidentAutoEscalation = types.BoolValue(env.IncidentAutoEscalation)
+	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 

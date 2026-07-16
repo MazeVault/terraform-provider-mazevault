@@ -27,6 +27,7 @@ type CertificateResource struct {
 type CertificateResourceModel struct {
 	ID                      types.String `tfsdk:"id"`
 	CommonName              types.String `tfsdk:"common_name"`
+	ProjectID               types.String `tfsdk:"project_id"`
 	TemplateID              types.String `tfsdk:"template_id"`
 	CSRPEM                  types.String `tfsdk:"csr_pem"`
 	TTL                     types.String `tfsdk:"ttl"`
@@ -56,6 +57,12 @@ func (r *CertificateResource) Schema(_ context.Context, _ resource.SchemaRequest
 				Required:            true,
 				MarkdownDescription: "Common Name (CN) for the certificate.",
 				PlanModifiers:       []planmodifier.String{stringplanmodifier.RequiresReplace()},
+			},
+			"project_id": schema.StringAttribute{
+				Optional:            true,
+				Computed:            true,
+				MarkdownDescription: "ID of the project to assign the issued certificate to.",
+				PlanModifiers:       []planmodifier.String{stringplanmodifier.RequiresReplace(), stringplanmodifier.UseStateForUnknown()},
 			},
 			"template_id": schema.StringAttribute{
 				Optional:            true,
@@ -103,7 +110,7 @@ func (r *CertificateResource) Schema(_ context.Context, _ resource.SchemaRequest
 			"organization_ca_account_id": schema.StringAttribute{
 				Optional:            true,
 				Computed:            true,
-				MarkdownDescription: "ID of the organisation-level CA account used for issuance (for external CAs).",
+				MarkdownDescription: "ID of the organization-level CA account to sign with, overriding the template's CA resolution. Use `mazevault_ca.account_id` to issue from the organization internal CA, or an external `mazevault_ca_account` id. When omitted, the template's CA (or the active internal CA fallback) is used.",
 			},
 		},
 	}
@@ -130,14 +137,28 @@ func (r *CertificateResource) Create(ctx context.Context, req resource.CreateReq
 	}
 
 	csr := &mazevault.SubmitCSRRequest{
-		RequestedCN:   data.CommonName.ValueString(),
-		CSRSourceMode: "uploaded",
+		RequestedCN: data.CommonName.ValueString(),
 	}
 	if !data.TemplateID.IsNull() {
 		csr.TemplateID = data.TemplateID.ValueString()
 	}
-	if !data.CSRPEM.IsNull() {
+	if !data.ProjectID.IsNull() && !data.ProjectID.IsUnknown() && data.ProjectID.ValueString() != "" {
+		csr.ProjectID = data.ProjectID.ValueString()
+	}
+	if !data.OrganizationCAAccountID.IsNull() && !data.OrganizationCAAccountID.IsUnknown() && data.OrganizationCAAccountID.ValueString() != "" {
+		csr.OrganizationCAAccountID = data.OrganizationCAAccountID.ValueString()
+	}
+	if !data.KeySize.IsNull() && !data.KeySize.IsUnknown() {
+		csr.RequestedKeySize = int(data.KeySize.ValueInt64())
+	}
+	// When a CSR is supplied use it as-is; otherwise ask the backend to generate
+	// the key pair and CSR server-side so a certificate can be issued from
+	// Terraform without an external key/CSR toolchain.
+	if !data.CSRPEM.IsNull() && data.CSRPEM.ValueString() != "" {
 		csr.CSRPEM = data.CSRPEM.ValueString()
+		csr.CSRSourceMode = "uploaded_csr"
+	} else {
+		csr.CSRSourceMode = "mazevault_generated"
 	}
 
 	cert, err := r.client.SubmitCSR(csr)
@@ -151,9 +172,31 @@ func (r *CertificateResource) Create(ctx context.Context, req resource.CreateReq
 	data.CertificatePEM = types.StringValue(cert.CertificatePEM)
 	if cert.PrivateKeyPEM != "" {
 		data.PrivateKeyPEM = types.StringValue(cert.PrivateKeyPEM)
+	} else {
+		// No server-side key returned (e.g. CSR-based or externally-held key) —
+		// the value must still be known after apply.
+		data.PrivateKeyPEM = types.StringNull()
 	}
 	data.Status = types.StringValue(cert.Status)
 	data.ExpiresAt = types.StringValue(cert.ExpiresAt)
+	// Reflect the project the certificate was assigned to.
+	if data.ProjectID.IsNull() || data.ProjectID.IsUnknown() {
+		if cert.ProjectID != nil && *cert.ProjectID != "" {
+			data.ProjectID = types.StringValue(*cert.ProjectID)
+		} else {
+			data.ProjectID = types.StringNull()
+		}
+	}
+	// Reflect the CA account actually used. Preserve an explicitly configured
+	// value; otherwise adopt whatever the backend resolved (may be empty for the
+	// internal-CA fallback path).
+	if data.OrganizationCAAccountID.IsNull() || data.OrganizationCAAccountID.IsUnknown() {
+		if cert.OrganizationCAAccountID != nil && *cert.OrganizationCAAccountID != "" {
+			data.OrganizationCAAccountID = types.StringValue(*cert.OrganizationCAAccountID)
+		} else {
+			data.OrganizationCAAccountID = types.StringNull()
+		}
+	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
@@ -180,6 +223,9 @@ func (r *CertificateResource) Read(ctx context.Context, req resource.ReadRequest
 	data.CertificatePEM = types.StringValue(cert.CertificatePEM)
 	data.Status = types.StringValue(cert.Status)
 	data.ExpiresAt = types.StringValue(cert.ExpiresAt)
+	if cert.ProjectID != nil && *cert.ProjectID != "" {
+		data.ProjectID = types.StringValue(*cert.ProjectID)
+	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }

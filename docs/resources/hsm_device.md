@@ -1,0 +1,51 @@
+# mazevault_hsm_device
+
+Manages an organization-level HSM/KMS device for centralized key protection.
+
+Device connection configuration is encrypted at rest with the system master key.
+
+## Example Usage
+
+```hcl
+resource "mazevault_hsm_device" "azure_kv_hsm" {
+  organization_id = var.org_id
+  name            = "Azure Managed HSM"
+  provider_type   = "azure"
+  priority        = 100
+
+  environments = ["production"]
+
+  config = {
+    vault_url   = "https://example-mhsm.managedhsm.azure.net/"
+    auth_method = "managed_identity"
+  }
+}
+```
+
+## Argument Reference
+
+- `organization_id` - (Required, ForceNew) ID of the organization that owns the device.
+- `name` - (Required) Display name of the HSM/KMS device.
+- `provider_type` - (Required) HSM/KMS provider type (e.g. `aws`, `azure`, `gcp`, `pkcs11`).
+- `config` - (Required, Sensitive) Provider-specific connection configuration map. Encrypted at rest.
+- `description` - (Optional, Computed) Free-text description.
+- `environments` - (Optional, Computed) Environments this device applies to.
+- `applies_to` - (Optional, Computed) Resource kinds this device applies to.
+- `priority` - (Optional, Computed) Routing priority; lower numbers are preferred. Defaults to `100`.
+
+## Attribute Reference
+
+In addition to all arguments above, the following computed attributes are exported:
+
+- `id` - Unique identifier of the HSM device.
+- `status` - Operational status of the device.
+- `health_status` - Latest health-check status.
+- `is_kek_device` - Whether this device holds the key-encryption key (KEK).
+
+## Import
+
+HSM devices can be imported by UUID:
+
+```
+terraform import mazevault_hsm_device.example <uuid>
+```
