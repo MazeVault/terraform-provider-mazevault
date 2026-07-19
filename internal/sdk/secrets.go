@@ -91,16 +91,15 @@ func (c *Client) CreateSecretGenerated(projectID, key, environment string, ttlHo
 
 // UpdateSecret updates a secret
 func (c *Client) UpdateSecret(id, value string, ttlHours int, metadata map[string]string) (*Secret, error) {
-	reqBody := struct {
-		Value    string            `json:"value"`
-		TTLHours int               `json:"ttl_hours,omitempty"`
-		Metadata map[string]string `json:"metadata,omitempty"`
-	}{
-		Value:    value,
+	return c.UpdateSecretWithRequest(id, UpdateSecretRequest{
+		Value:    &value,
 		TTLHours: ttlHours,
 		Metadata: metadata,
-	}
+	})
+}
 
+// UpdateSecretWithRequest updates a secret and can omit Value for metadata/TTL-only changes.
+func (c *Client) UpdateSecretWithRequest(id string, reqBody UpdateSecretRequest) (*Secret, error) {
 	path := fmt.Sprintf("/api/v1/secrets/%s", id)
 	req, err := c.newRequest(http.MethodPut, path, reqBody)
 	if err != nil {

@@ -1,12 +1,15 @@
 # mazevault_ca_account
 
-Connects an **external** Certificate Authority account to a MazeVault organization
-(DigiCert, SSLMarket, Sectigo, ACME providers such as Let's Encrypt / ZeroSSL,
-SmallStep, Microsoft ADCS, HashiCorp Vault, …).
+Connects a Certificate Authority account record or integration to a MazeVault
+organization. Supported account types include external commercial CAs, ACME
+providers such as Let's Encrypt / ZeroSSL, self-hosted providers such as
+SmallStep, Microsoft ADCS, HashiCorp Vault, EST, Venafi, and internal CA account
+references.
 
-> The organization's **internal** CA is not managed by this resource. It is
-> created and managed in the MazeVault UI under **Organization Settings →
-> Project Settings → Certificate Authorities → Internal Certificate Authority**.
+> Use `mazevault_ca` for normal lifecycle management of the organization's
+> **internal** root CA. `mazevault_ca_account` can represent CA account records,
+> including the internal CA account reference, but it does not initialize or
+> configure internal root CA key material.
 
 ## Example Usage
 
@@ -19,6 +22,13 @@ resource "mazevault_ca_account" "digicert" {
   provider_type   = "digicert"
   api_key         = var.digicert_api_key
   base_url        = "https://www.digicert.com"
+
+  settings = {
+    organization_id       = var.digicert_organization_id
+    server_platform_id    = "45"
+    dcv_method            = "dns_txt"
+    certificate_dcv_scope = "base_domain"
+  }
 }
 ```
 
@@ -61,13 +71,14 @@ resource "mazevault_ca_account" "custom_acme" {
 |----------|----------|-------------|
 | `organization_id` | yes | Organization that owns the CA account. Changing forces replacement. |
 | `name` | yes | Display name for the CA account. |
-| `provider_type` | yes | One of `digicert`, `sslmarket`, `sectigo`, `globalsign`, `entrust`, `letsencrypt`, `zerossl`, `acme`, `smallstep`, `adcs`, `vault`. Changing forces replacement. |
+| `provider_type` | yes | One of `digicert`, `sslmarket`, `rapidssl`, `sectigo`, `globalsign`, `entrust`, `letsencrypt`, `zerossl`, `acme`, `internal`, `adcs`, `vault`, `smallstep`, `est`, `venafi`. Values must be canonical lowercase with no surrounding whitespace. `rapidssl` uses the SSLMarket integration for backward compatibility; prefer `sslmarket` for new configurations. I.CA/PostSignum and PSD2 account creation are not exposed through Terraform until the backend integrations report a connectable status. Changing forces replacement. |
 | `api_key` | no | API key/credential for API-style providers (DigiCert, SSLMarket, ZeroSSL API). Sensitive, write-only. |
 | `base_url` | no | Base URL for the provider API (self-hosted CAs). |
 | `email` | no | ACME account contact email. **Required for ACME providers** (`letsencrypt`, `zerossl`, `acme`). |
 | `directory_url` | no | ACME directory URL. **Required for custom `acme`**; defaulted for `letsencrypt`/`zerossl`. |
 | `eab_kid` | no | External Account Binding key ID for ACME providers that require it (e.g. ZeroSSL). |
 | `eab_hmac_key` | no | External Account Binding HMAC key. Sensitive, write-only. |
+| `settings` | no | Non-secret provider settings persisted in CA account metadata, such as DigiCert `organization_id`, `container_id`, `server_platform_id`, `dcv_method`, `certificate_dcv_scope`, or SSLMarket contact defaults. Do **not** put API keys or passwords here. |
 
 ## Attribute Reference
 
@@ -79,6 +90,10 @@ resource "mazevault_ca_account" "custom_acme" {
 > Credential fields (`api_key`, `email`, `directory_url`, `eab_kid`,
 > `eab_hmac_key`) are **write-only**: the backend never returns them, so they are
 > preserved from state on read and are not detected as drift.
+
+> `settings` is also preserved from Terraform state on read because the provider
+> keeps credentials and non-secret settings separate while the backend response
+> does not expose provider metadata as a typed Terraform field.
 
 ## Import
 

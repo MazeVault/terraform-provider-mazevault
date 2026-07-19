@@ -34,6 +34,8 @@ type SecretResourceModel struct {
 	ProjectID   types.String         `tfsdk:"project_id"`
 	Key         types.String         `tfsdk:"key"`
 	Value       types.String         `tfsdk:"value"`
+	ValueWO     types.String         `tfsdk:"value_wo"`
+	ValueWOVer  types.Int64          `tfsdk:"value_wo_version"`
 	Environment types.String         `tfsdk:"environment"`
 	TTLHours    types.Int64          `tfsdk:"ttl_hours"`
 	Metadata    types.Map            `tfsdk:"metadata"`
@@ -112,9 +114,19 @@ func (r *SecretResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 				Required:    true,
 			},
 			"value": schema.StringAttribute{
-				Description: "Secret value (sensitive). Required unless `generate` is set. Omit this when using server-side generation so the plaintext never enters Terraform state.",
+				Description: "Legacy secret value input. This is marked sensitive, but Terraform still stores it in state. Prefer `value_wo` with Terraform 1.11+ or `generate` for new secrets.",
 				Optional:    true,
 				Sensitive:   true,
+			},
+			"value_wo": schema.StringAttribute{
+				Description: "Write-only secret value input for Terraform 1.11+ ephemeral values. This value is read from configuration and is not stored in Terraform plan or state.",
+				Optional:    true,
+				Sensitive:   true,
+				WriteOnly:   true,
+			},
+			"value_wo_version": schema.Int64Attribute{
+				Description: "Stored trigger for resending `value_wo`. Increment this when the write-only value should update the MazeVault secret.",
+				Optional:    true,
 			},
 			"environment": schema.StringAttribute{
 				Description: "Environment",
@@ -171,7 +183,7 @@ func (r *SecretResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 				},
 			},
 			"generate": schema.SingleNestedAttribute{
-				Description: "Request server-side value generation. Mutually exclusive with `value`. The plaintext is generated inside MazeVault and, in Orchestrator Mode, offloaded to the external provider.",
+				Description: "Request server-side value generation. Mutually exclusive with `value` and `value_wo`. The plaintext is generated inside MazeVault and, in Orchestrator Mode, offloaded to the external provider.",
 				Optional:    true,
 				Attributes: map[string]schema.Attribute{
 					"length": schema.Int64Attribute{
@@ -230,6 +242,12 @@ func (r *SecretResource) Create(ctx context.Context, req resource.CreateRequest,
 	if resp.Diagnostics.HasError() {
 		return
 	}
+	var config SecretResourceModel
+	diags = req.Config.Get(ctx, &config)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
 
 	metadata := make(map[string]string)
 	if !plan.Metadata.IsNull() {
@@ -258,13 +276,28 @@ func (r *SecretResource) Create(ctx context.Context, req resource.CreateRequest,
 		}
 	}
 
-	// Exactly one of value / generate must be supplied.
+	// Exactly one of value / value_wo / generate must be supplied.
 	hasValue := !plan.Value.IsNull() && plan.Value.ValueString() != ""
+	hasValueWO := !config.ValueWO.IsNull() && !config.ValueWO.IsUnknown() && config.ValueWO.ValueString() != ""
 	hasGenerate := plan.Generate != nil
-	if hasValue == hasGenerate {
+	if sourceCount(hasValue, hasValueWO, hasGenerate) != 1 {
 		resp.Diagnostics.AddError(
 			"Invalid Secret Configuration",
-			"Exactly one of 'value' or 'generate' must be set.",
+			"Exactly one of 'value', 'value_wo', or 'generate' must be set.",
+		)
+		return
+	}
+	if hasValueWO && (plan.ValueWOVer.IsNull() || plan.ValueWOVer.IsUnknown()) {
+		resp.Diagnostics.AddError(
+			"Invalid Secret Configuration",
+			"'value_wo_version' must be set when 'value_wo' is configured.",
+		)
+		return
+	}
+	if !hasValueWO && !plan.ValueWOVer.IsNull() && !plan.ValueWOVer.IsUnknown() {
+		resp.Diagnostics.AddError(
+			"Invalid Secret Configuration",
+			"'value_wo_version' can only be set when 'value_wo' is configured.",
 		)
 		return
 	}
@@ -282,10 +315,14 @@ func (r *SecretResource) Create(ctx context.Context, req resource.CreateRequest,
 			plan.Generate.toSDK(),
 		)
 	} else {
+		value := plan.Value.ValueString()
+		if hasValueWO {
+			value = config.ValueWO.ValueString()
+		}
 		secret, err = r.client.CreateSecret(
 			plan.ProjectID.ValueString(),
 			plan.Key.ValueString(),
-			plan.Value.ValueString(),
+			value,
 			plan.Environment.ValueString(),
 			int(plan.TTLHours.ValueInt64()),
 			metadata,
@@ -378,6 +415,18 @@ func (r *SecretResource) Update(ctx context.Context, req resource.UpdateRequest,
 	if resp.Diagnostics.HasError() {
 		return
 	}
+	var state SecretResourceModel
+	diags = req.State.Get(ctx, &state)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	var config SecretResourceModel
+	diags = req.Config.Get(ctx, &config)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
 
 	metadata := make(map[string]string)
 	if !plan.Metadata.IsNull() {
@@ -388,12 +437,44 @@ func (r *SecretResource) Update(ctx context.Context, req resource.UpdateRequest,
 		}
 	}
 
-	secret, err := r.client.UpdateSecret(
-		plan.ID.ValueString(),
-		plan.Value.ValueString(),
-		int(plan.TTLHours.ValueInt64()),
-		metadata,
-	)
+	hasValue := !plan.Value.IsNull() && plan.Value.ValueString() != ""
+	hasValueWO := !config.ValueWO.IsNull() && !config.ValueWO.IsUnknown() && config.ValueWO.ValueString() != ""
+	if sourceCount(hasValue, hasValueWO, plan.Generate != nil) != 1 {
+		resp.Diagnostics.AddError(
+			"Invalid Secret Configuration",
+			"Exactly one of 'value', 'value_wo', or 'generate' must be set.",
+		)
+		return
+	}
+	if hasValueWO && (plan.ValueWOVer.IsNull() || plan.ValueWOVer.IsUnknown()) {
+		resp.Diagnostics.AddError(
+			"Invalid Secret Configuration",
+			"'value_wo_version' must be set when 'value_wo' is configured.",
+		)
+		return
+	}
+	if !hasValueWO && !plan.ValueWOVer.IsNull() && !plan.ValueWOVer.IsUnknown() {
+		resp.Diagnostics.AddError(
+			"Invalid Secret Configuration",
+			"'value_wo_version' can only be set when 'value_wo' is configured.",
+		)
+		return
+	}
+
+	var value *string
+	if hasValue {
+		v := plan.Value.ValueString()
+		value = &v
+	} else if hasValueWO && shouldSendWriteOnlyValue(state.ValueWOVer, plan.ValueWOVer) {
+		v := config.ValueWO.ValueString()
+		value = &v
+	}
+
+	secret, err := r.client.UpdateSecretWithRequest(plan.ID.ValueString(), mazevault.UpdateSecretRequest{
+		Value:    value,
+		TTLHours: int(plan.TTLHours.ValueInt64()),
+		Metadata: metadata,
+	})
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Error updating secret",
@@ -426,6 +507,26 @@ func (r *SecretResource) Delete(ctx context.Context, req resource.DeleteRequest,
 		)
 		return
 	}
+}
+
+func sourceCount(values ...bool) int {
+	count := 0
+	for _, value := range values {
+		if value {
+			count++
+		}
+	}
+	return count
+}
+
+func shouldSendWriteOnlyValue(previous, next types.Int64) bool {
+	if next.IsNull() || next.IsUnknown() {
+		return false
+	}
+	if previous.IsNull() || previous.IsUnknown() {
+		return true
+	}
+	return previous.ValueInt64() != next.ValueInt64()
 }
 
 // ImportState imports the resource into Terraform state.

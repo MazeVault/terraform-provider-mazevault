@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	mazevault "github.com/MazeVault/maze-core/sdks/go"
-	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -408,12 +407,6 @@ func populateRotationConfigState(data *RotationConfigResourceModel, cfg *mazevau
 	} else {
 		data.NextRotationAt = types.StringNull()
 	}
-}
-
-// emptyStringList returns an empty types.List of string elements.
-// Used to initialise optional list attributes that the server returns as nil.
-func emptyStringList() types.List {
-	return types.ListValueMust(types.StringType, []attr.Value{})
 }
 
 // ImportState implements resource.ResourceWithImportState.

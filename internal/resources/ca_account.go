@@ -3,8 +3,10 @@ package resources
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	mazevault "github.com/MazeVault/maze-core/sdks/go"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -14,7 +16,28 @@ import (
 )
 
 var _ resource.Resource = &CAAccountResource{}
+var _ resource.ResourceWithValidateConfig = &CAAccountResource{}
 var _ resource.ResourceWithImportState = &CAAccountResource{}
+
+var supportedCAProviderTypes = map[string]struct{}{
+	"digicert":    {},
+	"sslmarket":   {},
+	"rapidssl":    {},
+	"sectigo":     {},
+	"globalsign":  {},
+	"entrust":     {},
+	"letsencrypt": {},
+	"zerossl":     {},
+	"acme":        {},
+	"internal":    {},
+	"adcs":        {},
+	"vault":       {},
+	"smallstep":   {},
+	"est":         {},
+	"venafi":      {},
+}
+
+const supportedCAProviderTypeList = "digicert, sslmarket, rapidssl, sectigo, globalsign, entrust, letsencrypt, zerossl, acme, internal, adcs, vault, smallstep, est, venafi"
 
 func NewCAAccountResource() resource.Resource { return &CAAccountResource{} }
 
@@ -31,6 +54,7 @@ type CAAccountModel struct {
 	DirectoryURL   types.String `tfsdk:"directory_url"`
 	EABKid         types.String `tfsdk:"eab_kid"`
 	EABHMACKey     types.String `tfsdk:"eab_hmac_key"`
+	Settings       types.Map    `tfsdk:"settings"`
 	Status         types.String `tfsdk:"status"`
 }
 
@@ -60,27 +84,104 @@ func (data CAAccountModel) buildCredentials() map[string]string {
 	return cfg
 }
 
+func (data CAAccountModel) buildSettings(ctx context.Context) (map[string]interface{}, diag.Diagnostics) {
+	settings := map[string]interface{}{}
+	if v := data.BaseURL.ValueString(); v != "" {
+		settings["base_url"] = v
+	}
+	if !data.Settings.IsNull() && !data.Settings.IsUnknown() {
+		var configured map[string]string
+		diagnostics := data.Settings.ElementsAs(ctx, &configured, false)
+		if diagnostics.HasError() {
+			return settings, diagnostics
+		}
+		for key, value := range configured {
+			settings[key] = value
+		}
+	}
+	return settings, nil
+}
+
+func canonicalCAProviderType(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
+}
+
+func validateCanonicalCAProviderType(raw string) error {
+	canonical := canonicalCAProviderType(raw)
+	if canonical == "" {
+		return fmt.Errorf("provider_type must be a non-empty canonical lowercase value without surrounding whitespace")
+	}
+	if raw == canonical {
+		return nil
+	}
+	return fmt.Errorf("provider_type must be canonical lowercase without surrounding whitespace; use %q", canonical)
+}
+
+func validateCAProviderType(raw string) (string, error) {
+	if err := validateCanonicalCAProviderType(raw); err != nil {
+		return "", err
+	}
+	providerType := canonicalCAProviderType(raw)
+	if _, ok := supportedCAProviderTypes[providerType]; !ok {
+		return "", fmt.Errorf("provider_type %q is not supported; must be one of: %s", providerType, supportedCAProviderTypeList)
+	}
+	return providerType, nil
+}
+
 // validateCredentials ensures non-internal providers carry at least one
 // credential. The backend rejects an empty credentials map with a generic
 // "Credentials are required for this provider type" 400; validating here yields a
 // clear, actionable message (e.g. ACME needs email + directory_url).
 func (data CAAccountModel) validateCredentials() error {
-	if data.ProviderType.ValueString() == "internal" {
+	if data.ProviderType.IsNull() || data.ProviderType.IsUnknown() {
 		return nil
 	}
-	if len(data.buildCredentials()) == 0 {
-		return fmt.Errorf("provider_type %q requires credentials: set api_key for commercial providers (e.g. digicert, venafi), or email + directory_url (plus eab_kid/eab_hmac_key when the ACME CA requires External Account Binding) for ACME providers (e.g. letsencrypt, zerossl, acme)", data.ProviderType.ValueString())
+	providerType, err := validateCAProviderType(data.ProviderType.ValueString())
+	if err != nil {
+		return err
+	}
+	if providerType == "internal" {
+		return nil
+	}
+	credentials := data.buildCredentials()
+	switch providerType {
+	case "letsencrypt", "zerossl", "acme":
+		if strings.TrimSpace(credentials["email"]) == "" {
+			return fmt.Errorf("provider_type %q requires email for ACME account registration", providerType)
+		}
+		if providerType == "acme" && strings.TrimSpace(credentials["directory_url"]) == "" {
+			return fmt.Errorf("provider_type %q requires directory_url for custom ACME directory discovery", providerType)
+		}
+		return nil
+	case "digicert", "sslmarket", "rapidssl", "sectigo", "globalsign", "entrust", "venafi":
+		if strings.TrimSpace(credentials["api_key"]) == "" {
+			return fmt.Errorf("provider_type %q requires api_key", providerType)
+		}
+		return nil
+	}
+	if len(credentials) == 0 {
+		return fmt.Errorf("provider_type %q requires credentials: set api_key for commercial providers (e.g. digicert, venafi), or email + directory_url (plus eab_kid/eab_hmac_key when the ACME CA requires External Account Binding) for ACME providers (e.g. letsencrypt, zerossl, acme)", providerType)
 	}
 	return nil
 }
 
+func (r *CAAccountResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
+	var data CAAccountModel
+	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() || data.ProviderType.IsNull() || data.ProviderType.IsUnknown() {
+		return
+	}
+	if _, err := validateCAProviderType(data.ProviderType.ValueString()); err != nil {
+		resp.Diagnostics.AddAttributeError(path.Root("provider_type"), "Invalid CA Account Provider Type", err.Error())
+	}
+}
 func (r *CAAccountResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
 	resp.TypeName = req.ProviderTypeName + "_ca_account"
 }
 
 func (r *CAAccountResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		MarkdownDescription: "Connects an external Certificate Authority (CA) account to a MazeVault organization. Supports DigiCert, Venafi, ACME, and SmallStep.",
+		MarkdownDescription: "Connects a Certificate Authority (CA) account record or integration to a MazeVault organization. Supports external providers, self-hosted providers, and internal CA account references.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:            true,
@@ -98,7 +199,7 @@ func (r *CAAccountResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 			},
 			"provider_type": schema.StringAttribute{
 				Required:            true,
-				MarkdownDescription: "CA provider type: `digicert`, `venafi`, `smallstep`, `letsencrypt`, `zerossl`, `acme`, or `internal`. Non-internal providers require credentials (see `api_key` for commercial providers; `email`/`directory_url`/EAB for ACME).",
+				MarkdownDescription: "CA provider type. Accepted canonical lowercase values for Terraform-managed CA account creation are `digicert`, `sslmarket`, `rapidssl`, `sectigo`, `globalsign`, `entrust`, `letsencrypt`, `zerossl`, `acme`, `internal`, `adcs`, `vault`, `smallstep`, `est`, and `venafi`. Values must be lowercase with no surrounding whitespace. Use `mazevault_ca` for normal internal root CA lifecycle management; `internal` here represents an internal CA account record/reference. Non-internal providers require credentials (see `api_key` for commercial providers; `email`/`directory_url`/EAB for ACME). I.CA/PostSignum and PSD2 account creation remain disabled until their backend integrations report a connectable status.",
 				PlanModifiers:       []planmodifier.String{stringplanmodifier.RequiresReplace()},
 			},
 			"api_key": schema.StringAttribute{
@@ -126,6 +227,11 @@ func (r *CAAccountResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 				Optional:            true,
 				Sensitive:           true,
 				MarkdownDescription: "External Account Binding (EAB) HMAC key for ACME providers that require it. Write-only.",
+			},
+			"settings": schema.MapAttribute{
+				Optional:            true,
+				ElementType:         types.StringType,
+				MarkdownDescription: "Non-secret provider settings persisted in the CA account metadata, such as `organization_id`, `container_id`, `server_platform_id`, `dcv_method`, `certificate_dcv_scope`, or SSLMarket contact defaults. Do not place API keys or passwords here.",
 			},
 			"status": schema.StringAttribute{
 				Computed:            true,
@@ -159,11 +265,18 @@ func (r *CAAccountResource) Create(ctx context.Context, req resource.CreateReque
 		resp.Diagnostics.AddError("Invalid CA Account Credentials", err.Error())
 		return
 	}
+	settings, diags := data.buildSettings(ctx)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	providerType := canonicalCAProviderType(data.ProviderType.ValueString())
 	created, err := r.client.ConnectCAAccount(data.OrganizationID.ValueString(), &mazevault.CreateCAAccountRequest{
 		DisplayName:  data.Name.ValueString(),
 		Name:         data.Name.ValueString(),
-		ProviderType: data.ProviderType.ValueString(),
+		ProviderType: providerType,
 		Credentials:  data.buildCredentials(),
+		Settings:     settings,
 	})
 	if err != nil {
 		resp.Diagnostics.AddError("Create CA Account Error", fmt.Sprintf("Unable to create CA account: %s", err))
@@ -199,7 +312,8 @@ func (r *CAAccountResource) Read(ctx context.Context, req resource.ReadRequest, 
 	data.ProviderType = types.StringValue(acc.ProviderType)
 	data.Status = types.StringValue(acc.Status)
 	// api_key, base_url, email, directory_url, eab_kid, eab_hmac_key are
-	// write-only credentials; the backend never returns them. Preserve state.
+	// write-only credentials. settings are provider metadata; preserve state because
+	// the SDK response does not currently expose backend metadata distinctly.
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
@@ -215,11 +329,18 @@ func (r *CAAccountResource) Update(ctx context.Context, req resource.UpdateReque
 		return
 	}
 	cfgU := plan.buildCredentials()
+	settings, diags := plan.buildSettings(ctx)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	providerType := canonicalCAProviderType(plan.ProviderType.ValueString())
 	if _, err := r.client.UpdateCAAccount(state.OrganizationID.ValueString(), state.ID.ValueString(), &mazevault.CreateCAAccountRequest{
 		DisplayName:  plan.Name.ValueString(),
 		Name:         plan.Name.ValueString(),
-		ProviderType: plan.ProviderType.ValueString(),
+		ProviderType: providerType,
 		Credentials:  cfgU,
+		Settings:     settings,
 	}); err != nil {
 		resp.Diagnostics.AddError("Update CA Account Error", fmt.Sprintf("Unable to update CA account: %s", err))
 		return

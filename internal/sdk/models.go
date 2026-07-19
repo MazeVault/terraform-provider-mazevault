@@ -117,6 +117,14 @@ type CreateSecretRequest struct {
 	Generate    *SecretGenerate   `json:"generate,omitempty"`
 }
 
+// UpdateSecretRequest updates a secret. Value is optional so metadata/TTL-only
+// callers can avoid replaying plaintext secret material.
+type UpdateSecretRequest struct {
+	Value    *string           `json:"value,omitempty"`
+	TTLHours int               `json:"ttl_hours,omitempty"`
+	Metadata map[string]string `json:"metadata,omitempty"`
+}
+
 // SecretGenerate requests cryptographically-secure server-side value generation.
 // When set, Value must be empty; the plaintext is generated in the vault and never
 // returned by the create call.
@@ -132,9 +140,12 @@ type SecretGenerate struct {
 
 // CreateSecretResponse represents the response after creating a secret
 type CreateSecretResponse struct {
-	ID      string `json:"id"`
-	Status  string `json:"status"`
-	Version int    `json:"version"`
+	ID            string `json:"id"`
+	Status        string `json:"status"`
+	Version       int    `json:"version"`
+	OffloadStatus string `json:"offload_status,omitempty"`
+	Missing       bool   `json:"missing,omitempty"`
+	StorageMode   string `json:"storage_mode,omitempty"`
 }
 
 // APIToken represents an API token
