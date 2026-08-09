@@ -22,11 +22,30 @@ resource "mazevault_hsm_device" "azure_kv_hsm" {
 }
 ```
 
+HashiCorp Vault Transit (keys generated and held by Vault; signing is remote):
+
+```hcl
+resource "mazevault_hsm_device" "vault_transit" {
+  organization_id = var.org_id
+  name            = "Vault Transit"
+  provider_type   = "hashicorp_vault"
+  priority        = 100
+
+  environments = ["production"]
+
+  config = {
+    vault_url  = "https://vault.example.net:8200"
+    token      = var.vault_token
+    mount_path = "transit" # optional, defaults to "transit"
+  }
+}
+```
+
 ## Argument Reference
 
 - `organization_id` - (Required, ForceNew) ID of the organization that owns the device.
 - `name` - (Required) Display name of the HSM/KMS device.
-- `provider_type` - (Required) HSM/KMS provider type (e.g. `aws`, `azure`, `gcp`, `pkcs11`).
+- `provider_type` - (Required) HSM/KMS provider type: `azure_managed_hsm`, `aws_cloudhsm`, `gcp_kms`, `pkcs11`, or `hashicorp_vault`.
 - `config` - (Required, Sensitive) Provider-specific connection configuration map. Encrypted at rest.
 - `description` - (Optional, Computed) Free-text description.
 - `environments` - (Optional, Computed) Environments this device applies to.

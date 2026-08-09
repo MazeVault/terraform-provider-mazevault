@@ -126,6 +126,7 @@ resource "mazevault_secret" "api_key" {
 - [mazevault_certificate_rotation_config](resources/certificate_rotation_config.md)
 - [mazevault_entra_rotation_config](resources/entra_rotation_config.md)
 - [mazevault_hsm_device](resources/hsm_device.md)
+- [mazevault_token](resources/token.md)
 
 ## Data Sources
 
@@ -150,6 +151,7 @@ resource "mazevault_secret" "api_key" {
 - [mazevault_rotation_resource_history](data-sources/rotation_resource_history.md)
 - [mazevault_project_rotation_configs](data-sources/project_rotation_configs.md)
 - [mazevault_hsm_devices](data-sources/hsm_devices.md)
+- [mazevault_tokens](data-sources/tokens.md)
 
 ## Known Limitations
 
@@ -169,3 +171,4 @@ resource "mazevault_secret" "api_key" {
 - `mazevault_secret`: Exactly one of `value`, `value_wo`, or `generate` must be set. `value_wo` requires Terraform 1.11+ and is intended for Terraform ephemeral values; pair it with `value_wo_version` and increment the version to resend a new value. Legacy `value` remains supported but is stored in Terraform state as a sensitive value. With `generate`, the value is produced server-side (crypto/rand, DB/URL-safe charset) and is never returned by the create call — in Orchestrator Mode it is offloaded to the external provider and stored as `names_only`. In standard mode the value is retrievable via the read API.
 - `mazevault_secret_rotation_target`: The `config_json` argument must be a valid JSON object encoded as a string (use `jsonencode()` in Terraform). Supplying malformed JSON produces a diagnostic error at apply time and aborts the operation. There is no direct GET-by-ID endpoint; Read uses a list scan which is O(n) in the number of targets. Destroying a target that has already been deleted externally is idempotent and succeeds silently.
 - `mazevault_sync_rule`: The backend does not expose a dedicated GET-by-ID endpoint for sync rules. Read() performs a list scan against `/api/v1/projects/:projectId/sync-rules` and locates the matching rule by UUID. This is O(n) in the number of rules per project. Destroy and Update use a separate path `/api/v1/projects/sync-rules/:id` that does not carry the project ID in the URL.
+- `mazevault_token`: Manages an external API token (e.g. Jira, Signi) with a **mandatory** `expires_at`. New resources should use Terraform 1.11+ `value_wo` with `value_wo_version`; the write-only value is absent from plan/state and incrementing the version replaces the token. Legacy `value` remains supported but is stored in Terraform state. The provider label is `token_provider` (`provider` is a reserved Terraform root attribute name). Import manages metadata only. `project_id` is immutable. Any replacement deletes the old token and its MazeVault deployment targets, so migration from `value` to `value_wo` must be a controlled operation. In-place value renewal and target redeployment use the MazeVault UI/API renew flow. Requires a **PoC or Enterprise** license (feature `token_management`); without it the API returns HTTP 403.

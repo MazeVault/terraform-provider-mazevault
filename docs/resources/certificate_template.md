@@ -20,6 +20,11 @@ resource "mazevault_certificate_template" "web_tls" {
   #   http-01     HTTP-01 (cannot validate wildcard names)
   #   tls-alpn-01 reserved; not yet supported
   challenge_type = "dns-01"
+
+  # Domain validation method for external commercial CAs that require one
+  # (e.g. SSLMarket: email | dns | file). Empty uses the provider/account
+  # default. Ignored by internal and ACME issuers.
+  # dcv_method = "dns"
 }
 ```
 
@@ -33,6 +38,7 @@ resource "mazevault_certificate_template" "web_tls" {
 | `validity_period` | yes | Duration string for certificate validity (e.g. `8760h`). |
 | `key_usage` | no | List of X.509 key usage extensions. |
 | `challenge_type` | no | ACME challenge policy: `auto` (default), `dns-01`, `http-01`, `tls-alpn-01`. Ignored for non-ACME issuers. |
+| `dcv_method` | no | Domain control validation method for external commercial CAs that require it (e.g. SSLMarket: `email`, `dns`, `file`). Empty uses the provider/account default. Ignored by internal and ACME issuers. |
 
 ## Attribute Reference
 

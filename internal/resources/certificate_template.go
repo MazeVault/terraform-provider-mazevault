@@ -41,6 +41,7 @@ type CertificateTemplateResourceModel struct {
 	ValidityPeriod        types.String `tfsdk:"validity_period"`
 	KeyUsage              types.List   `tfsdk:"key_usage"`
 	ChallengeType         types.String `tfsdk:"challenge_type"`
+	DCVMethod             types.String `tfsdk:"dcv_method"`
 	CertificateTemplateID types.String `tfsdk:"certificate_template_id"`
 }
 
@@ -91,6 +92,12 @@ func (r *CertificateTemplateResource) Schema(_ context.Context, _ resource.Schem
 				Optional:            true,
 				Computed:            true,
 				MarkdownDescription: "ACME challenge policy used when the issuing CA account is an ACME provider. One of `auto`, `dns-01`, `http-01`, `tls-alpn-01`. Defaults to `auto`. Ignored for non-ACME issuers.",
+				PlanModifiers:       []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
+			},
+			"dcv_method": schema.StringAttribute{
+				Optional:            true,
+				Computed:            true,
+				MarkdownDescription: "Per-template domain control validation method for external commercial CAs that require it (e.g. SSLMarket: `email`, `dns`, `file`). Empty means the provider/account default. Ignored by internal and ACME issuers.",
 				PlanModifiers:       []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"certificate_template_id": schema.StringAttribute{
@@ -246,6 +253,9 @@ func (r *CertificateTemplateResource) buildInput(ctx context.Context, data *Cert
 	if ct := data.ChallengeType.ValueString(); ct != "" && !data.ChallengeType.IsUnknown() {
 		protocol["challenge_type"] = ct
 	}
+	if dm := data.DCVMethod.ValueString(); dm != "" && !data.DCVMethod.IsUnknown() {
+		protocol["dcv_method"] = dm
+	}
 
 	return &mazevault.ProjectTemplateInput{
 		Name:           data.Name.ValueString(),
@@ -266,9 +276,17 @@ func applyProjectTemplateComputed(data *CertificateTemplateResourceModel, tmpl *
 				data.ChallengeType = types.StringValue(ct)
 			}
 		}
+		if data.DCVMethod.IsNull() || data.DCVMethod.IsUnknown() {
+			if dm, ok := tmpl.ProtocolConfig["dcv_method"].(string); ok && dm != "" {
+				data.DCVMethod = types.StringValue(dm)
+			}
+		}
 	}
 	if data.ChallengeType.IsNull() || data.ChallengeType.IsUnknown() {
 		data.ChallengeType = types.StringValue("auto")
+	}
+	if data.DCVMethod.IsUnknown() {
+		data.DCVMethod = types.StringNull()
 	}
 	if data.CertificateTemplateID.IsUnknown() {
 		data.CertificateTemplateID = types.StringNull()
