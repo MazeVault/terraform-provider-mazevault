@@ -41,3 +41,14 @@ func (c *Client) GetDeployment(id string) (*Deployment, error) {
 	}
 	return nil, nil
 }
+
+// DeleteDeployment soft-deletes a deployment record, invalidating its bootstrap
+// token and generated install script. It does NOT affect agents already
+// registered from the deployment. Scoped to the owning organization.
+func (c *Client) DeleteDeployment(id, organizationID string) error {
+	r, err := c.newRequest(http.MethodDelete, "/api/v1/deployments/"+id+"?organization_id="+organizationID, nil)
+	if err != nil {
+		return err
+	}
+	return c.Do(r, nil)
+}

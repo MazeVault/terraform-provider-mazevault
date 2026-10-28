@@ -26,6 +26,26 @@ resource "mazevault_certificate_template" "web_tls" {
   # default. Ignored by internal and ACME issuers.
   # dcv_method = "dns"
 }
+
+# Commercial CA (SSLMarket) template: issuing account, product, subscription
+# length and the technical contact forwarded with every order.
+resource "mazevault_certificate_template" "sslmarket_dv" {
+  project_id      = mazevault_project.backend.id
+  name            = "Public TLS (SSLMarket)"
+  type            = "ssl_tls"
+  validity_period = "4800h" # 200 days — public TLS maximum
+
+  ca_account_id = mazevault_ca_account.sslmarket.id
+  ca_product_id = "4f1c…"  # id from the synced product catalog
+  dcv_method    = "dns"
+  order_years   = 2        # paid order length; the CA issues follow-up certificates within it
+  tech_contact = {
+    firstname = "Jana"
+    lastname  = "Nováková"
+    email     = "pki@example.cz"
+    tel       = "+420.123456789"
+  }
+}
 ```
 
 ## Argument Reference
@@ -37,8 +57,12 @@ resource "mazevault_certificate_template" "web_tls" {
 | `type` | yes | Template type (e.g. `tls_server`, `tls_client`, `code_signing`). |
 | `validity_period` | yes | Duration string for certificate validity (e.g. `8760h`). |
 | `key_usage` | no | List of X.509 key usage extensions. |
-| `challenge_type` | no | ACME challenge policy: `auto` (default), `dns-01`, `http-01`, `tls-alpn-01`. Ignored for non-ACME issuers. |
+| `challenge_type` | no | ACME challenge policy: `auto` (default), `dns-01`, `http-01`, `tls-alpn-01`. Ignored for non-ACME issuers. SSLMarket accounts in ACME mode validate via `http-01` only. |
 | `dcv_method` | no | Domain control validation method for external commercial CAs that require it (e.g. SSLMarket: `email`, `dns`, `file`). Empty uses the provider/account default. Ignored by internal and ACME issuers. |
+| `ca_account_id` | no | Organization CA account that issues certificates from this template. Required for automatic renewal. |
+| `ca_product_id` | no | Product from the CA account catalog (commercial CAs). Determines validation level, wildcard/SAN limits and the maximum subscription length. |
+| `order_years` | no | Subscription length in years for multi-year commercial CA orders (SSLMarket, 1–6). Length of the paid order, **not** of the certificate; within the subscription the CA issues follow-up certificates itself and MazeVault adopts them without placing a new order. Empty means 1 year. |
+| `tech_contact` | no | Map with the technical contact forwarded with commercial CA orders (`title`, `firstname`, `lastname`, `email`, `tel`). Requests may override it; empty means the CA account default. |
 
 ## Attribute Reference
 

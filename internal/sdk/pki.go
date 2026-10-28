@@ -301,10 +301,18 @@ func (c *Client) ListProjectCertificateTemplates(projectID string) ([]Certificat
 
 // Certificate represents an issued certificate
 type Certificate struct {
-	ID                      string  `json:"id"`
-	CommonName              string  `json:"common_name"`
-	SerialNumber            string  `json:"serial_number"`
-	CertificatePEM          string  `json:"certificate_pem"`
+	ID           string `json:"id"`
+	CommonName   string `json:"common_name"`
+	SerialNumber string `json:"serial_number"`
+	// CertificatePEM is the full PEM bundle (leaf followed by the effective issuer chain).
+	// The API field is public_chain_pem; it always reflects the same chain export produces.
+	CertificatePEM string `json:"public_chain_pem"`
+	// ChainPEM holds the issuer chain only (nearest issuer first, root last).
+	ChainPEM string `json:"chain_pem,omitempty"`
+	// ChainSource reports where the effective chain came from: "stored", "inventory" or "none".
+	ChainSource string `json:"chain_source,omitempty"`
+	// ChainComplete is true when the effective chain terminates at a self-signed root.
+	ChainComplete           bool    `json:"chain_complete,omitempty"`
 	PrivateKeyPEM           string  `json:"private_key_pem,omitempty"`
 	Status                  string  `json:"status"`
 	ExpiresAt               string  `json:"expiry_date"`
@@ -322,6 +330,16 @@ type SubmitCSRRequest struct {
 	CSRSourceMode           string `json:"csr_source_mode,omitempty"`
 	RequestedKeySize        int    `json:"requested_key_size,omitempty"`
 	OrganizationCAAccountID string `json:"organization_ca_account_id,omitempty"`
+
+	// Per-request issuance overrides for commercial CAs (request -> template -> CA
+	// account precedence). All optional; omitted values inherit the template, then the
+	// account defaults.
+	DCVMethod             string            `json:"dcv_method,omitempty"`
+	CAProductID           string            `json:"ca_product_id,omitempty"`
+	OrderYears            *int              `json:"order_years,omitempty"`
+	RequestedValidityDays *int              `json:"requested_validity_days,omitempty"`
+	TechContact           map[string]string `json:"tech_contact,omitempty"`
+	Voucher               string            `json:"voucher,omitempty"`
 }
 
 // csrSubmitResponse mirrors the CertificateRequest returned by POST

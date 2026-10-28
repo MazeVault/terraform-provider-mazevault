@@ -56,6 +56,34 @@ resource "mazevault_certificate" "external_key" {
 - `ttl` - (Optional) Requested certificate TTL (e.g. `"8760h"`). May be constrained by the template.
 - `key_size` - (Optional) Key size in bits for server-side key generation (used when `csr_pem` is omitted).
 - `organization_ca_account_id` - (Optional, Computed) ID of the organization CA account to sign with, overriding the template's CA resolution. Set to `mazevault_ca.<name>.account_id` to issue from the organization internal CA, or to an external `mazevault_ca_account` id. When omitted, the template's CA — or the active internal CA fallback — is used.
+- `dcv_method` - (Optional, ForceNew) Domain validation method for commercial CAs (`email`, `dns`, `file`). Overrides the template; empty inherits the template, then the CA account.
+- `ca_product_id` - (Optional, ForceNew) CA account product to order (commercial CAs). Overrides the template product.
+- `order_years` - (Optional, ForceNew) Subscription length in years for multi-year commercial CA orders (SSLMarket, 1–6). Length of the paid order, not of the certificate.
+- `requested_validity_days` - (Optional, ForceNew) Requested certificate validity in days for CAs that honour it.
+- `tech_contact` - (Optional, ForceNew) Map with the technical contact forwarded with the order (`title`, `firstname`, `lastname`, `email`, `tel`). Overrides the template contact.
+- `voucher` - (Optional, ForceNew, Sensitive) Voucher code applied to the commercial CA order. Inherited from the CA account when empty.
+
+Settings are layered: the request wins, the template fills in what the request leaves empty, and the CA account supplies the business defaults (owner, authorised contact, invoice). The resolved settings are validated against the account's product catalog **before** anything is ordered (unsupported validation method, too many SANs, wildcard on a non-wildcard product, subscription longer than the product allows), so a request the CA would reject fails at `terraform apply` — never as a paid order.
+
+### Issue through SSLMarket with per-request overrides
+
+```hcl
+resource "mazevault_certificate" "shop_tls" {
+  common_name = "shop.example.cz"
+  project_id  = mazevault_project.pki.id
+  template_id = mazevault_certificate_template.sslmarket_dv.certificate_template_id
+
+  dcv_method  = "dns"   # MazeVault places the _dnsauth TXT record itself or opens a ticket with it
+  order_years = 3
+  tech_contact = {
+    firstname = "Petr"
+    lastname  = "Svoboda"
+    email     = "petr.svoboda@example.cz"
+  }
+}
+```
+
+Commercial CA orders are asynchronous: `terraform apply` returns once the CA accepted the order and the resource points at the **pending** certificate (`status = "pending"`, empty `certificate_pem`). MazeVault validates the domain and downloads the certificate when the CA issues it; read the material later with `data "mazevault_certificate"`.
 
 ### CA resolution order
 

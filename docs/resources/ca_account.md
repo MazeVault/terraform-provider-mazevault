@@ -78,7 +78,7 @@ resource "mazevault_ca_account" "custom_acme" {
 | `directory_url` | no | ACME directory URL. **Required for custom `acme`**; defaulted for `letsencrypt`/`zerossl`. |
 | `eab_kid` | no | External Account Binding key ID for ACME providers that require it (e.g. ZeroSSL). |
 | `eab_hmac_key` | no | External Account Binding HMAC key. Sensitive, write-only. |
-| `settings` | no | Non-secret provider settings persisted in CA account metadata, such as DigiCert `organization_id`, `container_id`, `server_platform_id`, `dcv_method`, `certificate_dcv_scope`, or SSLMarket contact defaults. Do **not** put API keys or passwords here. |
+| `settings` | no | Non-secret provider settings persisted in CA account metadata, such as DigiCert `organization_id`, `container_id`, `server_platform_id`, `dcv_method`, `certificate_dcv_scope`. SSLMarket: `mode` (`order` default, or `acme` for the SSLmarket ACME endpoint with external account binding — HTTP-01 only; requires `acme_product_code`, optional `acme_certificate_validity_days` 1–199 and `acme_organization_id`), `product_code`, `dv_auth_method` (`dns`/`email`/`file`), `order_wait_alert_hours`, `dns_solver_type` + `dns_solver_config` (lets MazeVault place DCV TXT records itself; without them a ticket with the record is opened in the organization ticketing integration), owner/authorised-contact/invoice defaults (`owner_*`, `auth_*`, `invoice_*`), default `tech_*` contact and `voucher`. Do **not** put API keys or passwords here. |
 
 ## Attribute Reference
 

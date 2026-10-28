@@ -11,12 +11,15 @@ type RotationConfigTemplate struct {
 	Name                 string `json:"name"`
 	Description          string `json:"description,omitempty"`
 	OrganizationID       string `json:"organization_id,omitempty"`
+	ProjectID            string `json:"project_id,omitempty"`
 	IsDefault            bool   `json:"is_default"`
 	RotationIntervalDays int    `json:"rotation_interval_days,omitempty"`
 	LeadTimeDays         int    `json:"lead_time_days,omitempty"`
 	GracePeriodDays      int    `json:"grace_period_days,omitempty"`
 	MaxRetryAttempts     int    `json:"max_retry_attempts,omitempty"`
+	RetryDelaySeconds    int    `json:"retry_delay_seconds,omitempty"`
 	TimeoutMinutes       int    `json:"timeout_minutes,omitempty"`
+	SecretCustodyMode    string `json:"secret_custody_mode,omitempty"`
 	CreatedAt            string `json:"created_at"`
 	UpdatedAt            string `json:"updated_at"`
 }
@@ -26,17 +29,28 @@ type CreateRotationTemplateRequest struct {
 	Name                 string `json:"name"`
 	Description          string `json:"description,omitempty"`
 	OrganizationID       string `json:"organization_id,omitempty"`
-	IsDefault            bool   `json:"is_default,omitempty"`
-	RotationIntervalDays int    `json:"rotation_interval_days,omitempty"`
-	LeadTimeDays         int    `json:"lead_time_days,omitempty"`
-	GracePeriodDays      int    `json:"grace_period_days,omitempty"`
-	MaxRetryAttempts     int    `json:"max_retry_attempts,omitempty"`
-	TimeoutMinutes       int    `json:"timeout_minutes,omitempty"`
+	ProjectID            string `json:"project_id,omitempty"`
+	IsDefault            bool   `json:"is_default"`
+	RotationIntervalDays int    `json:"rotation_interval_days"`
+	LeadTimeDays         int    `json:"lead_time_days"`
+	GracePeriodDays      int    `json:"grace_period_days"`
+	MaxRetryAttempts     int    `json:"max_retry_attempts"`
+	RetryDelaySeconds    int    `json:"retry_delay_seconds"`
+	TimeoutMinutes       int    `json:"timeout_minutes"`
+	SecretCustodyMode    string `json:"secret_custody_mode,omitempty"`
 }
 
-// ListRotationTemplatesResponse wraps the list response.
-type ListRotationTemplatesResponse struct {
-	Templates []RotationConfigTemplate `json:"templates"`
+// ListRotationTemplates returns templates visible to the authenticated organization.
+func (c *Client) ListRotationTemplates() ([]RotationConfigTemplate, error) {
+	r, err := c.newRequest(http.MethodGet, "/api/v1/rotation/templates", nil)
+	if err != nil {
+		return nil, err
+	}
+	var templates []RotationConfigTemplate
+	if err := c.Do(r, &templates); err != nil {
+		return nil, err
+	}
+	return templates, nil
 }
 
 // CreateRotationTemplate creates a new rotation config template.

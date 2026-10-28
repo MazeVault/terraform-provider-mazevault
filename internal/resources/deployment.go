@@ -155,6 +155,11 @@ func (r *DeploymentResource) Read(ctx context.Context, req resource.ReadRequest,
 	data.GatewayURL = types.StringValue(dep.GatewayURL)
 	data.AutoUpdate = types.BoolValue(dep.AutoUpdate)
 	data.CreatedAt = types.StringValue(dep.CreatedAt.Format(time.RFC3339))
+	// Restore the owning organization so an imported deployment can be destroyed
+	// (Delete sends organization_id; an empty value would be rejected with 400).
+	if dep.OrganizationID != "" {
+		data.OrganizationID = types.StringValue(dep.OrganizationID)
+	}
 	// Token is returned only on creation; preserve from state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
@@ -163,8 +168,21 @@ func (r *DeploymentResource) Update(_ context.Context, _ resource.UpdateRequest,
 	// Deployments are immutable; all fields use RequiresReplace.
 }
 
-func (r *DeploymentResource) Delete(_ context.Context, _ resource.DeleteRequest, _ *resource.DeleteResponse) {
-	// Deleting a deployment from state only — there is no API endpoint to delete deployment records.
+func (r *DeploymentResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	var data DeploymentModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	// Soft-deletes the deployment record and invalidates its bootstrap token.
+	// Already-registered agents are unaffected. Absent records are treated as
+	// already deleted.
+	if err := r.client.DeleteDeployment(data.ID.ValueString(), data.OrganizationID.ValueString()); err != nil {
+		if apiErr, ok := err.(*mazevault.APIError); ok && apiErr.StatusCode == 404 {
+			return
+		}
+		resp.Diagnostics.AddError("Delete Deployment Error", fmt.Sprintf("Unable to delete deployment: %s", err))
+	}
 }
 
 // ImportState implements resource.ResourceWithImportState.

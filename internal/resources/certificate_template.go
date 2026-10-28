@@ -42,6 +42,10 @@ type CertificateTemplateResourceModel struct {
 	KeyUsage              types.List   `tfsdk:"key_usage"`
 	ChallengeType         types.String `tfsdk:"challenge_type"`
 	DCVMethod             types.String `tfsdk:"dcv_method"`
+	CAAccountID           types.String `tfsdk:"ca_account_id"`
+	CAProductID           types.String `tfsdk:"ca_product_id"`
+	OrderYears            types.Int64  `tfsdk:"order_years"`
+	TechContact           types.Map    `tfsdk:"tech_contact"`
 	CertificateTemplateID types.String `tfsdk:"certificate_template_id"`
 }
 
@@ -99,6 +103,23 @@ func (r *CertificateTemplateResource) Schema(_ context.Context, _ resource.Schem
 				Computed:            true,
 				MarkdownDescription: "Per-template domain control validation method for external commercial CAs that require it (e.g. SSLMarket: `email`, `dns`, `file`). Empty means the provider/account default. Ignored by internal and ACME issuers.",
 				PlanModifiers:       []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
+			},
+			"ca_account_id": schema.StringAttribute{
+				Optional:            true,
+				MarkdownDescription: "ID of the organization CA account that issues certificates from this template. Required for automatic renewal.",
+			},
+			"ca_product_id": schema.StringAttribute{
+				Optional:            true,
+				MarkdownDescription: "ID of a product from the CA account catalog (commercial CAs such as SSLMarket). Determines validation level, wildcard/SAN limits and the maximum subscription length.",
+			},
+			"order_years": schema.Int64Attribute{
+				Optional:            true,
+				MarkdownDescription: "Subscription length in years for commercial CAs with multi-year orders (SSLMarket, 1–6). This is the length of the paid order, not of the certificate; within the subscription the CA issues follow-up certificates itself and MazeVault adopts them without placing a new order. Empty means 1 year.",
+			},
+			"tech_contact": schema.MapAttribute{
+				ElementType:         types.StringType,
+				Optional:            true,
+				MarkdownDescription: "Technical contact forwarded with commercial CA orders. Keys: `title`, `firstname`, `lastname`, `email`, `tel` (format `+420.123456789`). Individual requests may override it; empty means the CA account default.",
 			},
 			"certificate_template_id": schema.StringAttribute{
 				Computed:            true,
@@ -255,6 +276,22 @@ func (r *CertificateTemplateResource) buildInput(ctx context.Context, data *Cert
 	}
 	if dm := data.DCVMethod.ValueString(); dm != "" && !data.DCVMethod.IsUnknown() {
 		protocol["dcv_method"] = dm
+	}
+	if v := data.CAAccountID.ValueString(); v != "" && !data.CAAccountID.IsUnknown() {
+		protocol["ca_account_id"] = v
+	}
+	if v := data.CAProductID.ValueString(); v != "" && !data.CAProductID.IsUnknown() {
+		protocol["ca_product_id"] = v
+	}
+	if !data.OrderYears.IsNull() && !data.OrderYears.IsUnknown() && data.OrderYears.ValueInt64() > 0 {
+		protocol["order_years"] = data.OrderYears.ValueInt64()
+	}
+	if !data.TechContact.IsNull() && !data.TechContact.IsUnknown() {
+		contact := map[string]string{}
+		diags.Append(data.TechContact.ElementsAs(ctx, &contact, false)...)
+		if len(contact) > 0 {
+			protocol["tech_contact"] = contact
+		}
 	}
 
 	return &mazevault.ProjectTemplateInput{

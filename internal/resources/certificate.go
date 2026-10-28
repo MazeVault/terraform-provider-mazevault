@@ -8,6 +8,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/mapplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -38,6 +40,12 @@ type CertificateResourceModel struct {
 	Status                  types.String `tfsdk:"status"`
 	ExpiresAt               types.String `tfsdk:"expires_at"`
 	OrganizationCAAccountID types.String `tfsdk:"organization_ca_account_id"`
+	DCVMethod               types.String `tfsdk:"dcv_method"`
+	CAProductID             types.String `tfsdk:"ca_product_id"`
+	OrderYears              types.Int64  `tfsdk:"order_years"`
+	RequestedValidityDays   types.Int64  `tfsdk:"requested_validity_days"`
+	TechContact             types.Map    `tfsdk:"tech_contact"`
+	Voucher                 types.String `tfsdk:"voucher"`
 }
 
 func (r *CertificateResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -112,6 +120,38 @@ func (r *CertificateResource) Schema(_ context.Context, _ resource.SchemaRequest
 				Computed:            true,
 				MarkdownDescription: "ID of the organization-level CA account to sign with, overriding the template's CA resolution. Use `mazevault_ca.account_id` to issue from the organization internal CA, or an external `mazevault_ca_account` id. When omitted, the template's CA (or the active internal CA fallback) is used.",
 			},
+			"dcv_method": schema.StringAttribute{
+				Optional:            true,
+				MarkdownDescription: "Domain validation method for commercial CAs (`email`, `dns`, `file`). Overrides the template; empty inherits template, then CA account. Changing it forces a new certificate.",
+				PlanModifiers:       []planmodifier.String{stringplanmodifier.RequiresReplace()},
+			},
+			"ca_product_id": schema.StringAttribute{
+				Optional:            true,
+				MarkdownDescription: "CA account product to order (commercial CAs). Overrides the template product. Changing it forces a new certificate.",
+				PlanModifiers:       []planmodifier.String{stringplanmodifier.RequiresReplace()},
+			},
+			"order_years": schema.Int64Attribute{
+				Optional:            true,
+				MarkdownDescription: "Subscription length in years for multi-year commercial CA orders (SSLMarket, 1–6). Length of the paid order, not of the certificate. Changing it forces a new certificate.",
+				PlanModifiers:       []planmodifier.Int64{int64planmodifier.RequiresReplace()},
+			},
+			"requested_validity_days": schema.Int64Attribute{
+				Optional:            true,
+				MarkdownDescription: "Requested certificate validity in days for CAs that honour it. Changing it forces a new certificate.",
+				PlanModifiers:       []planmodifier.Int64{int64planmodifier.RequiresReplace()},
+			},
+			"tech_contact": schema.MapAttribute{
+				ElementType:         types.StringType,
+				Optional:            true,
+				MarkdownDescription: "Technical contact forwarded with the commercial CA order. Keys: `title`, `firstname`, `lastname`, `email`, `tel`. Overrides the template contact.",
+				PlanModifiers:       []planmodifier.Map{mapplanmodifier.RequiresReplace()},
+			},
+			"voucher": schema.StringAttribute{
+				Optional:            true,
+				Sensitive:           true,
+				MarkdownDescription: "Voucher code applied to the commercial CA order. Inherited from the CA account when empty.",
+				PlanModifiers:       []planmodifier.String{stringplanmodifier.RequiresReplace()},
+			},
 		},
 	}
 }
@@ -150,6 +190,31 @@ func (r *CertificateResource) Create(ctx context.Context, req resource.CreateReq
 	}
 	if !data.KeySize.IsNull() && !data.KeySize.IsUnknown() {
 		csr.RequestedKeySize = int(data.KeySize.ValueInt64())
+	}
+	// Commercial-CA order overrides (request -> template -> CA account precedence).
+	if v := data.DCVMethod.ValueString(); v != "" && !data.DCVMethod.IsUnknown() {
+		csr.DCVMethod = v
+	}
+	if v := data.CAProductID.ValueString(); v != "" && !data.CAProductID.IsUnknown() {
+		csr.CAProductID = v
+	}
+	if !data.OrderYears.IsNull() && !data.OrderYears.IsUnknown() && data.OrderYears.ValueInt64() > 0 {
+		years := int(data.OrderYears.ValueInt64())
+		csr.OrderYears = &years
+	}
+	if !data.RequestedValidityDays.IsNull() && !data.RequestedValidityDays.IsUnknown() && data.RequestedValidityDays.ValueInt64() > 0 {
+		days := int(data.RequestedValidityDays.ValueInt64())
+		csr.RequestedValidityDays = &days
+	}
+	if !data.TechContact.IsNull() && !data.TechContact.IsUnknown() {
+		contact := map[string]string{}
+		resp.Diagnostics.Append(data.TechContact.ElementsAs(ctx, &contact, false)...)
+		if len(contact) > 0 {
+			csr.TechContact = contact
+		}
+	}
+	if v := data.Voucher.ValueString(); v != "" && !data.Voucher.IsUnknown() {
+		csr.Voucher = v
 	}
 	// When a CSR is supplied use it as-is; otherwise ask the backend to generate
 	// the key pair and CSR server-side so a certificate can be issued from

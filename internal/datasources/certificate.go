@@ -21,6 +21,9 @@ type CertificateDataModel struct {
 	CommonName     types.String `tfsdk:"common_name"`
 	SerialNumber   types.String `tfsdk:"serial_number"`
 	CertificatePEM types.String `tfsdk:"certificate_pem"`
+	ChainPEM       types.String `tfsdk:"chain_pem"`
+	ChainSource    types.String `tfsdk:"chain_source"`
+	ChainComplete  types.Bool   `tfsdk:"chain_complete"`
 	Status         types.String `tfsdk:"status"`
 	ExpiresAt      types.String `tfsdk:"expires_at"`
 }
@@ -36,7 +39,10 @@ func (d *CertificateDataSource) Schema(_ context.Context, _ datasource.SchemaReq
 			"id":              schema.StringAttribute{Required: true, MarkdownDescription: "Certificate ID."},
 			"common_name":     schema.StringAttribute{Computed: true, MarkdownDescription: "Certificate Common Name."},
 			"serial_number":   schema.StringAttribute{Computed: true, MarkdownDescription: "Certificate serial number."},
-			"certificate_pem": schema.StringAttribute{Computed: true, MarkdownDescription: "PEM-encoded certificate chain."},
+			"certificate_pem": schema.StringAttribute{Computed: true, MarkdownDescription: "PEM bundle: the certificate followed by its effective issuer chain (the same chain MazeVault exports and deploys)."},
+			"chain_pem":       schema.StringAttribute{Computed: true, MarkdownDescription: "PEM issuer chain only, nearest issuer first and root last. Empty when no issuer is known."},
+			"chain_source":    schema.StringAttribute{Computed: true, MarkdownDescription: "Where the issuer chain comes from: `stored` (captured at import/issuance), `inventory` (resolved from verified CA certificates in the organization) or `none`."},
+			"chain_complete":  schema.BoolAttribute{Computed: true, MarkdownDescription: "True when the issuer chain ends at a self-signed root certificate."},
 			"status":          schema.StringAttribute{Computed: true, MarkdownDescription: "Certificate status (`active`, `revoked`, `expired`)."},
 			"expires_at":      schema.StringAttribute{Computed: true, MarkdownDescription: "Expiry date (ISO-8601)."},
 		},
@@ -70,6 +76,9 @@ func (d *CertificateDataSource) Read(ctx context.Context, req datasource.ReadReq
 	data.CommonName = types.StringValue(cert.CommonName)
 	data.SerialNumber = types.StringValue(cert.SerialNumber)
 	data.CertificatePEM = types.StringValue(cert.CertificatePEM)
+	data.ChainPEM = types.StringValue(cert.ChainPEM)
+	data.ChainSource = types.StringValue(cert.ChainSource)
+	data.ChainComplete = types.BoolValue(cert.ChainComplete)
 	data.Status = types.StringValue(cert.Status)
 	data.ExpiresAt = types.StringValue(cert.ExpiresAt)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
