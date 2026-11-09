@@ -74,7 +74,7 @@ func (r *DeploymentResource) Schema(_ context.Context, _ resource.SchemaRequest,
 			},
 			"gateway_url": schema.StringAttribute{
 				Optional:            true,
-				MarkdownDescription: "Gateway URL for tunnel-mode agents.",
+				MarkdownDescription: "Server URL the agents installed from this deployment connect to. Defaults to the primary. Set it to a gateway's agent-facing URL (`MAZEVAULT_GATEWAY_PUBLIC_URL`, shown as `public_url` on the gateway) when agents live in a datacenter without a network path to the primary: the gateway relays the agent API to the primary, which remains the control plane.",
 				PlanModifiers:       []planmodifier.String{stringplanmodifier.RequiresReplace()},
 			},
 			"auto_update": schema.BoolAttribute{

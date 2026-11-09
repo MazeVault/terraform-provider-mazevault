@@ -3,6 +3,7 @@ package resources
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	mazevault "github.com/MazeVault/maze-core/sdks/go"
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -17,6 +18,44 @@ import (
 
 var _ resource.Resource = &CertificateResource{}
 var _ resource.ResourceWithImportState = &CertificateResource{}
+var _ resource.ResourceWithValidateConfig = &CertificateResource{}
+
+// ValidateConfig enforces the private key custody contract at plan time.
+func (r *CertificateResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
+	var data CertificateResourceModel
+	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	mode := data.KeyStorageMode.ValueString()
+	if !data.KeyStorageMode.IsNull() && !data.KeyStorageMode.IsUnknown() && mode != "local" && mode != "external" {
+		resp.Diagnostics.AddAttributeError(path.Root("key_storage_mode"), "Invalid key_storage_mode",
+			fmt.Sprintf("%q is not supported; use \"local\" or \"external\"", mode))
+	}
+	hasCSR := !data.CSRPEM.IsNull() && !data.CSRPEM.IsUnknown() && data.CSRPEM.ValueString() != ""
+	if hasCSR {
+		for _, attr := range []struct {
+			name  string
+			value types.String
+		}{{"key_storage_mode", data.KeyStorageMode}, {"key_integration_id", data.KeyIntegrationID}, {"key_secret_name", data.KeySecretName}} {
+			if !attr.value.IsNull() && !attr.value.IsUnknown() && attr.value.ValueString() != "" {
+				resp.Diagnostics.AddAttributeError(path.Root(attr.name), "Conflicts with csr_pem",
+					"Private key custody attributes apply only to server-side generated key pairs; remove them when csr_pem is supplied.")
+			}
+		}
+	}
+	if !data.KeyStorageMode.IsUnknown() && mode != "external" {
+		for _, attr := range []struct {
+			name  string
+			value types.String
+		}{{"key_integration_id", data.KeyIntegrationID}, {"key_secret_name", data.KeySecretName}} {
+			if !attr.value.IsNull() && !attr.value.IsUnknown() && attr.value.ValueString() != "" {
+				resp.Diagnostics.AddAttributeError(path.Root(attr.name), "Requires key_storage_mode = \"external\"",
+					fmt.Sprintf("%s is only meaningful when the private key is offloaded to an external secret manager.", attr.name))
+			}
+		}
+	}
+}
 
 func NewCertificateResource() resource.Resource {
 	return &CertificateResource{}
@@ -46,6 +85,9 @@ type CertificateResourceModel struct {
 	RequestedValidityDays   types.Int64  `tfsdk:"requested_validity_days"`
 	TechContact             types.Map    `tfsdk:"tech_contact"`
 	Voucher                 types.String `tfsdk:"voucher"`
+	KeyStorageMode          types.String `tfsdk:"key_storage_mode"`
+	KeyIntegrationID        types.String `tfsdk:"key_integration_id"`
+	KeySecretName           types.String `tfsdk:"key_secret_name"`
 }
 
 func (r *CertificateResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -80,6 +122,24 @@ func (r *CertificateResource) Schema(_ context.Context, _ resource.SchemaRequest
 			"csr_pem": schema.StringAttribute{
 				Optional:            true,
 				MarkdownDescription: "PEM-encoded Certificate Signing Request. Required when using an externally generated key pair.",
+				PlanModifiers:       []planmodifier.String{stringplanmodifier.RequiresReplace()},
+			},
+			"key_storage_mode": schema.StringAttribute{
+				Optional: true,
+				MarkdownDescription: "Private key custody for server-side generated key pairs (ignored when `csr_pem` is set). " +
+					"`local` (default) encrypts the key with the MazeVault master key; `external` offloads it to a " +
+					"secret-manager integration and keeps only a reference. **Orchestrator Mode requires `external`.**",
+				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()},
+			},
+			"key_integration_id": schema.StringAttribute{
+				Optional: true,
+				MarkdownDescription: "ID of the `mazevault_integration` (e.g. Azure Key Vault) that receives the private key when " +
+					"`key_storage_mode = \"external\"`. When omitted the project's default secret-manager integration is used.",
+				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()},
+			},
+			"key_secret_name": schema.StringAttribute{
+				Optional:            true,
+				MarkdownDescription: "Name of the secret created in the external secret manager for the private key (`external` mode only). Defaults to a name derived from the common name.",
 				PlanModifiers:       []planmodifier.String{stringplanmodifier.RequiresReplace()},
 			},
 			"ttl": schema.StringAttribute{
@@ -224,6 +284,15 @@ func (r *CertificateResource) Create(ctx context.Context, req resource.CreateReq
 		csr.CSRSourceMode = "uploaded_csr"
 	} else {
 		csr.CSRSourceMode = "mazevault_generated"
+		if v := data.KeyStorageMode.ValueString(); v != "" && !data.KeyStorageMode.IsUnknown() {
+			csr.KeyStorageMode = v
+		}
+		if v := data.KeyIntegrationID.ValueString(); v != "" && !data.KeyIntegrationID.IsUnknown() {
+			csr.KeyIntegrationID = v
+		}
+		if v := data.KeySecretName.ValueString(); v != "" && !data.KeySecretName.IsUnknown() {
+			csr.KeySecretName = v
+		}
 	}
 
 	cert, err := r.client.SubmitCSR(csr)
@@ -275,6 +344,10 @@ func (r *CertificateResource) Read(ctx context.Context, req resource.ReadRequest
 
 	cert, err := r.client.GetCertificate(data.ID.ValueString())
 	if err != nil {
+		if mazevault.IsNotFoundError(err) {
+			resp.State.RemoveResource(ctx)
+			return
+		}
 		resp.Diagnostics.AddError("Read Certificate Error", fmt.Sprintf("Unable to read certificate: %s", err))
 		return
 	}
@@ -299,6 +372,11 @@ func (r *CertificateResource) Update(_ context.Context, _ resource.UpdateRequest
 	// Certificates are immutable; all fields use RequiresReplace.
 }
 
+// Delete revokes the certificate where the issuing CA supports it. Certificates
+// issued through an external CA account carry no internal CA link, so the
+// backend cannot revoke them; those are archived instead so the record leaves
+// the active inventory and destroy completes. Already-removed records are
+// treated as gone.
 func (r *CertificateResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
 	var data CertificateResourceModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
@@ -306,7 +384,20 @@ func (r *CertificateResource) Delete(ctx context.Context, req resource.DeleteReq
 		return
 	}
 
-	if err := r.client.RevokeCertificate(data.ID.ValueString()); err != nil {
+	id := data.ID.ValueString()
+	err := r.client.RevokeCertificate(id)
+	switch {
+	case err == nil, mazevault.IsNotFoundError(err):
+		return
+	case strings.Contains(err.Error(), "no associated CA"), strings.Contains(err.Error(), "already revoked"):
+		if archiveErr := r.client.ArchiveCertificate(id); archiveErr != nil && !mazevault.IsNotFoundError(archiveErr) {
+			resp.Diagnostics.AddError("Archive Certificate Error",
+				fmt.Sprintf("Certificate cannot be revoked (%s) and archiving failed: %s", err, archiveErr))
+			return
+		}
+		resp.Diagnostics.AddWarning("Certificate archived instead of revoked",
+			fmt.Sprintf("Certificate %s was issued through an external CA account without revocation support in MazeVault; the record was archived. Revoke it at the issuing CA if required.", id))
+	default:
 		resp.Diagnostics.AddError("Revoke Certificate Error", fmt.Sprintf("Unable to revoke certificate: %s", err))
 	}
 }

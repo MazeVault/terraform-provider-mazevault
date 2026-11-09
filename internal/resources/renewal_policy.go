@@ -144,6 +144,10 @@ func (r *RenewalPolicyResource) Read(ctx context.Context, req resource.ReadReque
 	}
 	policy, err := r.client.GetRenewalPolicy(data.OrganizationID.ValueString(), data.ID.ValueString())
 	if err != nil {
+		if mazevault.IsNotFoundError(err) {
+			resp.State.RemoveResource(ctx)
+			return
+		}
 		resp.Diagnostics.AddError("Read Renewal Policy Error", fmt.Sprintf("Unable to read renewal policy: %s", err))
 		return
 	}
@@ -196,7 +200,8 @@ func (r *RenewalPolicyResource) Delete(ctx context.Context, req resource.DeleteR
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	if err := r.client.DeleteRenewalPolicy(data.OrganizationID.ValueString(), data.ID.ValueString()); err != nil {
+	// An object that is already gone needs no deletion.
+	if err := r.client.DeleteRenewalPolicy(data.OrganizationID.ValueString(), data.ID.ValueString()); err != nil && !mazevault.IsNotFoundError(err) {
 		resp.Diagnostics.AddError("Delete Renewal Policy Error", fmt.Sprintf("Unable to delete renewal policy: %s", err))
 	}
 }

@@ -340,6 +340,14 @@ type SubmitCSRRequest struct {
 	RequestedValidityDays *int              `json:"requested_validity_days,omitempty"`
 	TechContact           map[string]string `json:"tech_contact,omitempty"`
 	Voucher               string            `json:"voucher,omitempty"`
+
+	// Private key custody for server-side generated CSRs. "local" (default)
+	// encrypts the key with the MazeVault master key; "external" offloads it to the
+	// secret-manager integration referenced by KeyIntegrationID (mandatory in
+	// Orchestrator Mode, where no private key may be stored locally).
+	KeyStorageMode   string `json:"key_storage_mode,omitempty"`
+	KeyIntegrationID string `json:"key_integration_id,omitempty"`
+	KeySecretName    string `json:"key_secret_name,omitempty"`
 }
 
 // csrSubmitResponse mirrors the CertificateRequest returned by POST
@@ -392,6 +400,18 @@ func (c *Client) RevokeCertificate(id string) error {
 	// 4 = superseded, an appropriate neutral reason for lifecycle-driven revocation.
 	body := map[string]interface{}{"reason_code": 4, "comment": "revoked via SDK"}
 	r, err := c.newRequest(http.MethodPost, "/api/v1/certificates/"+id+"/revoke", body)
+	if err != nil {
+		return err
+	}
+	return c.Do(r, nil)
+}
+
+// ArchiveCertificate soft-deletes (archives) a certificate record without
+// touching the issuing CA. Used when revocation is not possible, e.g. for
+// certificates issued through an external CA account that has no CRL/OCSP
+// integration in MazeVault.
+func (c *Client) ArchiveCertificate(id string) error {
+	r, err := c.newRequest(http.MethodPost, "/api/v1/certificates/"+id+"/archive", nil)
 	if err != nil {
 		return err
 	}

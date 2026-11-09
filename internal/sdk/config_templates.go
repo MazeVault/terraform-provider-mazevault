@@ -66,3 +66,22 @@ func (c *Client) DeleteConfigTemplate(organizationID, templateID string) error {
 	}
 	return c.Do(r, nil)
 }
+
+// ValidateConfigTemplateDefinition runs the backend validator for a template
+// definition without persisting anything. The result is returned for both valid
+// and invalid definitions; only transport failures produce an error.
+func (c *Client) ValidateConfigTemplateDefinition(organizationID, templateType string, definition map[string]interface{}) (*ConfigTemplateValidationResult, error) {
+	payload := map[string]interface{}{
+		"template_type": templateType,
+		"definition":    definition,
+	}
+	r, err := c.newRequest(http.MethodPost, "/api/v1/organizations/"+organizationID+"/config-templates/validate", payload)
+	if err != nil {
+		return nil, err
+	}
+	var resp ConfigTemplateValidationResult
+	if err := c.Do(r, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}

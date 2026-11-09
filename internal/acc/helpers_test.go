@@ -3,6 +3,7 @@ package acc
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"testing"
 
 	"github.com/MazeVault/maze-core/terraform-provider-mazevault/internal/provider"
@@ -40,4 +41,9 @@ provider "mazevault" {
   skip_tls_verify = true
 }
 `, os.Getenv("MAZEVAULT_SERVER_URL"), os.Getenv("MAZEVAULT_API_TOKEN"))
+}
+
+// regexpMustCompile is a readable alias for ExpectError patterns.
+func regexpMustCompile(pattern string) *regexp.Regexp {
+	return regexp.MustCompile(pattern)
 }

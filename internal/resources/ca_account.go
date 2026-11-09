@@ -54,6 +54,7 @@ type CAAccountModel struct {
 	DirectoryURL   types.String `tfsdk:"directory_url"`
 	EABKid         types.String `tfsdk:"eab_kid"`
 	EABHMACKey     types.String `tfsdk:"eab_hmac_key"`
+	Credentials    types.Map    `tfsdk:"credentials"`
 	Settings       types.Map    `tfsdk:"settings"`
 	Status         types.String `tfsdk:"status"`
 }
@@ -61,7 +62,9 @@ type CAAccountModel struct {
 // buildCredentials assembles the backend credentials map from the non-empty
 // provider fields. ACME providers (letsencrypt/zerossl/acme) consume email,
 // directory_url and the EAB pair; API-style providers use api_key/base_url.
-func (data CAAccountModel) buildCredentials() map[string]string {
+// Self-hosted providers (smallstep, adcs, vault, est) take their secret material
+// from the generic `credentials` map, which is merged last so explicit keys win.
+func (data CAAccountModel) buildCredentials(ctx context.Context) (map[string]string, diag.Diagnostics) {
 	cfg := map[string]string{}
 	if v := data.APIKey.ValueString(); v != "" {
 		cfg["api_key"] = v
@@ -81,7 +84,19 @@ func (data CAAccountModel) buildCredentials() map[string]string {
 	if v := data.EABHMACKey.ValueString(); v != "" {
 		cfg["eab_hmac_key"] = v
 	}
-	return cfg
+	if !data.Credentials.IsNull() && !data.Credentials.IsUnknown() {
+		var generic map[string]string
+		diagnostics := data.Credentials.ElementsAs(ctx, &generic, false)
+		if diagnostics.HasError() {
+			return cfg, diagnostics
+		}
+		for key, value := range generic {
+			if value != "" {
+				cfg[key] = value
+			}
+		}
+	}
+	return cfg, nil
 }
 
 func (data CAAccountModel) buildSettings(ctx context.Context) (map[string]interface{}, diag.Diagnostics) {
@@ -128,11 +143,40 @@ func validateCAProviderType(raw string) (string, error) {
 	return providerType, nil
 }
 
+// secretLikeSettingKeys are credential keys that must never travel in
+// `settings`, because settings are persisted and returned as plaintext metadata.
+var secretLikeSettingKeys = []string{"password", "secret", "token", "api_key", "private_key", "hmac", "provisioner_key", "client_cert_key"}
+
+// validateSettingsHaveNoSecrets rejects settings keys that look like secret
+// material so they cannot leak into plaintext metadata.
+func (data CAAccountModel) validateSettingsHaveNoSecrets(ctx context.Context) diag.Diagnostics {
+	var diags diag.Diagnostics
+	if data.Settings.IsNull() || data.Settings.IsUnknown() {
+		return diags
+	}
+	var configured map[string]string
+	diags.Append(data.Settings.ElementsAs(ctx, &configured, false)...)
+	if diags.HasError() {
+		return diags
+	}
+	for key := range configured {
+		lower := strings.ToLower(key)
+		for _, marker := range secretLikeSettingKeys {
+			if strings.Contains(lower, marker) {
+				diags.AddAttributeError(path.Root("settings"), "Secret material in settings",
+					fmt.Sprintf("settings key %q looks like a credential; settings are stored as plaintext metadata. Move it to the sensitive `credentials` map.", key))
+				break
+			}
+		}
+	}
+	return diags
+}
+
 // validateCredentials ensures non-internal providers carry at least one
 // credential. The backend rejects an empty credentials map with a generic
 // "Credentials are required for this provider type" 400; validating here yields a
 // clear, actionable message (e.g. ACME needs email + directory_url).
-func (data CAAccountModel) validateCredentials() error {
+func (data CAAccountModel) validateCredentials(ctx context.Context) error {
 	if data.ProviderType.IsNull() || data.ProviderType.IsUnknown() {
 		return nil
 	}
@@ -143,7 +187,10 @@ func (data CAAccountModel) validateCredentials() error {
 	if providerType == "internal" {
 		return nil
 	}
-	credentials := data.buildCredentials()
+	credentials, diags := data.buildCredentials(ctx)
+	if diags.HasError() {
+		return fmt.Errorf("credentials map is invalid")
+	}
 	switch providerType {
 	case "letsencrypt", "zerossl", "acme":
 		if strings.TrimSpace(credentials["email"]) == "" {
@@ -158,9 +205,19 @@ func (data CAAccountModel) validateCredentials() error {
 			return fmt.Errorf("provider_type %q requires api_key", providerType)
 		}
 		return nil
+	case "smallstep":
+		if strings.TrimSpace(credentials["provisioner_password"]) == "" {
+			return fmt.Errorf("provider_type %q requires credentials[\"provisioner_password\"] (JWK provisioner password); put server_url, provisioner_name and root_fingerprint in settings", providerType)
+		}
+		return nil
+	case "adcs":
+		if strings.TrimSpace(credentials["password"]) == "" || strings.TrimSpace(credentials["username"]) == "" {
+			return fmt.Errorf("provider_type %q requires credentials[\"username\"] and credentials[\"password\"]; put enrollment_url, enrollment_mode, auth_type and template in settings", providerType)
+		}
+		return nil
 	}
 	if len(credentials) == 0 {
-		return fmt.Errorf("provider_type %q requires credentials: set api_key for commercial providers (e.g. digicert, venafi), or email + directory_url (plus eab_kid/eab_hmac_key when the ACME CA requires External Account Binding) for ACME providers (e.g. letsencrypt, zerossl, acme)", providerType)
+		return fmt.Errorf("provider_type %q requires credentials: set api_key for commercial providers (e.g. digicert, venafi), email + directory_url (plus eab_kid/eab_hmac_key when the ACME CA requires External Account Binding) for ACME providers (e.g. letsencrypt, zerossl, acme), or the provider-specific keys in the `credentials` map for self-hosted providers", providerType)
 	}
 	return nil
 }
@@ -174,6 +231,7 @@ func (r *CAAccountResource) ValidateConfig(ctx context.Context, req resource.Val
 	if _, err := validateCAProviderType(data.ProviderType.ValueString()); err != nil {
 		resp.Diagnostics.AddAttributeError(path.Root("provider_type"), "Invalid CA Account Provider Type", err.Error())
 	}
+	resp.Diagnostics.Append(data.validateSettingsHaveNoSecrets(ctx)...)
 }
 func (r *CAAccountResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
 	resp.TypeName = req.ProviderTypeName + "_ca_account"
@@ -228,10 +286,19 @@ func (r *CAAccountResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 				Sensitive:           true,
 				MarkdownDescription: "External Account Binding (EAB) HMAC key for ACME providers that require it. Write-only.",
 			},
+			"credentials": schema.MapAttribute{
+				Optional:    true,
+				Sensitive:   true,
+				ElementType: types.StringType,
+				MarkdownDescription: "Provider-specific secret material, encrypted at rest by the backend and never returned by the API (write-only). " +
+					"Use it for self-hosted providers: `smallstep` → `provisioner_password` (and optionally `provisioner_key_json`); " +
+					"`adcs` → `username`, `password`; `vault` → `token`; `est` → `username`, `password`. " +
+					"Keys given here take precedence over the typed attributes (`api_key`, `email`, …). Never put secrets in `settings`.",
+			},
 			"settings": schema.MapAttribute{
 				Optional:            true,
 				ElementType:         types.StringType,
-				MarkdownDescription: "Non-secret provider settings persisted in the CA account metadata, such as `organization_id`, `container_id`, `server_platform_id`, `dcv_method`, `certificate_dcv_scope`, or SSLMarket contact defaults. Do not place API keys or passwords here.",
+				MarkdownDescription: "Non-secret provider settings persisted in the CA account metadata (plaintext), such as `organization_id`, `container_id`, `server_platform_id`, `dcv_method`, `certificate_dcv_scope`, SSLMarket contact defaults, Smallstep `server_url`/`provisioner_name`/`provisioner_type`/`root_fingerprint`/`default_ttl`, or ADCS `enrollment_url`/`enrollment_mode`/`auth_type`/`template`. Keys that look like secrets (password, token, key, …) are rejected; use `credentials` for them.",
 			},
 			"status": schema.StringAttribute{
 				Computed:            true,
@@ -261,10 +328,12 @@ func (r *CAAccountResource) Create(ctx context.Context, req resource.CreateReque
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	if err := data.validateCredentials(); err != nil {
+	if err := data.validateCredentials(ctx); err != nil {
 		resp.Diagnostics.AddError("Invalid CA Account Credentials", err.Error())
 		return
 	}
+	credentials, diags := data.buildCredentials(ctx)
+	resp.Diagnostics.Append(diags...)
 	settings, diags := data.buildSettings(ctx)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
@@ -275,7 +344,7 @@ func (r *CAAccountResource) Create(ctx context.Context, req resource.CreateReque
 		DisplayName:  data.Name.ValueString(),
 		Name:         data.Name.ValueString(),
 		ProviderType: providerType,
-		Credentials:  data.buildCredentials(),
+		Credentials:  credentials,
 		Settings:     settings,
 	})
 	if err != nil {
@@ -295,6 +364,10 @@ func (r *CAAccountResource) Read(ctx context.Context, req resource.ReadRequest, 
 	}
 	acc, err := r.client.GetCAAccount(data.OrganizationID.ValueString(), data.ID.ValueString())
 	if err != nil {
+		if mazevault.IsNotFoundError(err) {
+			resp.State.RemoveResource(ctx)
+			return
+		}
 		resp.Diagnostics.AddError("Read CA Account Error", fmt.Sprintf("Unable to read CA account: %s", err))
 		return
 	}
@@ -324,11 +397,12 @@ func (r *CAAccountResource) Update(ctx context.Context, req resource.UpdateReque
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	if err := plan.validateCredentials(); err != nil {
+	if err := plan.validateCredentials(ctx); err != nil {
 		resp.Diagnostics.AddError("Invalid CA Account Credentials", err.Error())
 		return
 	}
-	cfgU := plan.buildCredentials()
+	cfgU, diags := plan.buildCredentials(ctx)
+	resp.Diagnostics.Append(diags...)
 	settings, diags := plan.buildSettings(ctx)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
@@ -355,7 +429,8 @@ func (r *CAAccountResource) Delete(ctx context.Context, req resource.DeleteReque
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	if err := r.client.DeleteCAAccount(data.OrganizationID.ValueString(), data.ID.ValueString()); err != nil {
+	// An object that is already gone needs no deletion.
+	if err := r.client.DeleteCAAccount(data.OrganizationID.ValueString(), data.ID.ValueString()); err != nil && !mazevault.IsNotFoundError(err) {
 		resp.Diagnostics.AddError("Delete CA Account Error", fmt.Sprintf("Unable to delete CA account: %s", err))
 	}
 }

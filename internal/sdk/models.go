@@ -390,26 +390,51 @@ type CreateCAAccountRequest struct {
 	Settings     map[string]interface{} `json:"settings,omitempty"`
 }
 
-// ConfigTemplate represents an org-level config management template
+// ConfigTemplate represents an organization-level Configuration Management
+// template (GET/POST /organizations/:id/config-templates). The backend stores a
+// typed policy: template_type selects the validator and definition carries the
+// type-specific JSON document (naming_convention, secret_pattern,
+// secret_naming_policy, discovery_policy, exclusion_rule,
+// resource_visibility_policy, parser).
 type ConfigTemplate struct {
 	ID             string                 `json:"id"`
 	OrganizationID string                 `json:"organization_id"`
 	Name           string                 `json:"name"`
 	Description    string                 `json:"description"`
-	Format         string                 `json:"format"`
-	Template       string                 `json:"template"`
-	Variables      map[string]interface{} `json:"variables"`
+	TemplateType   string                 `json:"template_type"`
+	Definition     map[string]interface{} `json:"definition"`
+	IsActive       bool                   `json:"is_active"`
+	IsDefault      bool                   `json:"is_default"`
+	Priority       int                    `json:"priority"`
 	CreatedAt      time.Time              `json:"created_at"`
 	UpdatedAt      time.Time              `json:"updated_at"`
 }
 
-// CreateConfigTemplateRequest is the request body for creating a config template
+// CreateConfigTemplateRequest is the request body for creating or updating a
+// Configuration Management template. Pointer fields are only sent when set so
+// that updates can leave backend defaults untouched.
 type CreateConfigTemplateRequest struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description,omitempty"`
-	Format      string                 `json:"format,omitempty"`
-	Template    string                 `json:"template"`
-	Variables   map[string]interface{} `json:"variables,omitempty"`
+	Name         string                 `json:"name"`
+	Description  string                 `json:"description,omitempty"`
+	TemplateType string                 `json:"template_type"`
+	Definition   map[string]interface{} `json:"definition"`
+	IsActive     *bool                  `json:"is_active,omitempty"`
+	IsDefault    *bool                  `json:"is_default,omitempty"`
+	Priority     *int                   `json:"priority,omitempty"`
+}
+
+// ConfigTemplateValidationIssue is a single validation finding returned by
+// POST /organizations/:id/config-templates/validate.
+type ConfigTemplateValidationIssue struct {
+	Field   string `json:"field"`
+	Message string `json:"message"`
+}
+
+// ConfigTemplateValidationResult is the response of the definition validator.
+type ConfigTemplateValidationResult struct {
+	Valid    bool                            `json:"valid"`
+	Errors   []ConfigTemplateValidationIssue `json:"errors"`
+	Warnings []ConfigTemplateValidationIssue `json:"warnings"`
 }
 
 // Deployment represents an agent deployment package

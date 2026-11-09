@@ -144,6 +144,10 @@ func (r *ProjectResource) Read(ctx context.Context, req resource.ReadRequest, re
 
 	project, err := r.client.GetProject(state.ID.ValueString())
 	if err != nil {
+		if mazevault.IsNotFoundError(err) {
+			resp.State.RemoveResource(ctx)
+			return
+		}
 		resp.Diagnostics.AddError(
 			"Error reading project",
 			"Could not read project ID "+state.ID.ValueString()+": "+err.Error(),
@@ -208,8 +212,8 @@ func (r *ProjectResource) Delete(ctx context.Context, req resource.DeleteRequest
 		return
 	}
 
-	err := r.client.DeleteProject(state.ID.ValueString())
-	if err != nil {
+	// An object that is already gone needs no deletion.
+	if err := r.client.DeleteProject(state.ID.ValueString()); err != nil && !mazevault.IsNotFoundError(err) {
 		resp.Diagnostics.AddError(
 			"Error deleting project",
 			"Could not delete project, unexpected error: "+err.Error(),

@@ -267,13 +267,22 @@ func (r *RotationConfigResource) Read(ctx context.Context, req resource.ReadRequ
 	data.ID = types.StringValue(cfg.ID)
 	data.SecretID = types.StringValue(cfg.SecretID)
 	data.Enabled = types.BoolValue(cfg.Enabled)
-	data.Schedule = types.StringValue(cfg.Schedule)
+	if cfg.Schedule != "" || !data.Schedule.IsNull() {
+		data.Schedule = types.StringValue(cfg.Schedule)
+	}
 	data.RotationIntervalDays = types.Int64Value(int64(cfg.RotationIntervalDays))
 
-	emails, diags := types.ListValueFrom(ctx, types.StringType, cfg.NotificationEmails)
-	resp.Diagnostics.Append(diags...)
-	if !resp.Diagnostics.HasError() {
-		data.NotificationEmails = emails
+	// An absent list from the backend (null) and an explicitly empty list in the
+	// configuration mean the same thing; keep the configured shape so neither
+	// `[]` nor an omitted attribute produces a perpetual diff.
+	if len(cfg.NotificationEmails) > 0 {
+		emails, diags := types.ListValueFrom(ctx, types.StringType, cfg.NotificationEmails)
+		resp.Diagnostics.Append(diags...)
+		if !resp.Diagnostics.HasError() {
+			data.NotificationEmails = emails
+		}
+	} else if data.NotificationEmails.IsUnknown() {
+		data.NotificationEmails = types.ListNull(types.StringType)
 	}
 
 	// Restore post_actions from the server response.
@@ -382,17 +391,31 @@ func (r *RotationConfigResource) Delete(ctx context.Context, req resource.Delete
 }
 
 // populateRotationConfigState copies computed/status fields from the API response
-// into the Terraform state model.
+// into the Terraform state model. Every computed attribute ends up known (value
+// or null): Terraform rejects unknown values after apply.
 func populateRotationConfigState(data *RotationConfigResourceModel, cfg *mazevault.RotationConfigDetail) {
 	// Status and errors from the response.
-	if cfg.Status != "" {
+	switch {
+	case cfg.Status != "":
 		data.Status = types.StringValue(cfg.Status)
-	} else if cfg.Resource != nil && cfg.Resource.StatusSummary != "" {
+	case cfg.Resource != nil && cfg.Resource.StatusSummary != "":
 		data.Status = types.StringValue(cfg.Resource.StatusSummary)
+	case data.Status.IsUnknown():
+		data.Status = types.StringNull()
 	}
 
 	if cfg.LastError != "" {
 		data.LastError = types.StringValue(cfg.LastError)
+	} else {
+		data.LastError = types.StringNull()
+	}
+
+	if data.TargetEnvironment.IsUnknown() {
+		if cfg.TargetEnvironment != "" {
+			data.TargetEnvironment = types.StringValue(cfg.TargetEnvironment)
+		} else {
+			data.TargetEnvironment = types.StringNull()
+		}
 	}
 
 	if cfg.LastRotatedAt != nil {

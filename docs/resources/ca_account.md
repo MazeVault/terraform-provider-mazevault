@@ -65,6 +65,53 @@ resource "mazevault_ca_account" "custom_acme" {
 }
 ```
 
+### Smallstep step-ca (JWK provisioner)
+
+```hcl
+resource "mazevault_ca_account" "smallstep" {
+  organization_id = mazevault_organization.acme.id
+  name            = "Shared step-ca"
+  provider_type   = "smallstep"
+
+  # Connection details are non-secret metadata.
+  settings = {
+    server_url       = "https://step-ca.pki.svc.cluster.local:9000"
+    provisioner_name = "mazevault"
+    provisioner_type = "JWK"
+    root_fingerprint = var.step_ca_root_fingerprint
+    default_ttl      = "24h"
+  }
+
+  # Secret material goes to the encrypted credentials map (write-only).
+  credentials = {
+    provisioner_password = var.step_ca_provisioner_password
+  }
+}
+```
+
+### Active Directory Certificate Services (web enrollment)
+
+```hcl
+resource "mazevault_ca_account" "adcs" {
+  organization_id = mazevault_organization.acme.id
+  name            = "Corp ADCS"
+  provider_type   = "adcs"
+
+  settings = {
+    enrollment_url  = "https://ca.corp.example.com/certsrv"
+    enrollment_mode = "web"
+    auth_type       = "basic"
+    template        = "WebServer"
+    verify_ssl      = "true"
+  }
+
+  credentials = {
+    username = var.adcs_enroll_user
+    password = var.adcs_enroll_password
+  }
+}
+```
+
 ## Argument Reference
 
 | Argument | Required | Description |
@@ -78,7 +125,8 @@ resource "mazevault_ca_account" "custom_acme" {
 | `directory_url` | no | ACME directory URL. **Required for custom `acme`**; defaulted for `letsencrypt`/`zerossl`. |
 | `eab_kid` | no | External Account Binding key ID for ACME providers that require it (e.g. ZeroSSL). |
 | `eab_hmac_key` | no | External Account Binding HMAC key. Sensitive, write-only. |
-| `settings` | no | Non-secret provider settings persisted in CA account metadata, such as DigiCert `organization_id`, `container_id`, `server_platform_id`, `dcv_method`, `certificate_dcv_scope`. SSLMarket: `mode` (`order` default, or `acme` for the SSLmarket ACME endpoint with external account binding — HTTP-01 only; requires `acme_product_code`, optional `acme_certificate_validity_days` 1–199 and `acme_organization_id`), `product_code`, `dv_auth_method` (`dns`/`email`/`file`), `order_wait_alert_hours`, `dns_solver_type` + `dns_solver_config` (lets MazeVault place DCV TXT records itself; without them a ticket with the record is opened in the organization ticketing integration), owner/authorised-contact/invoice defaults (`owner_*`, `auth_*`, `invoice_*`), default `tech_*` contact and `voucher`. Do **not** put API keys or passwords here. |
+| `credentials` | no | Generic map of provider-specific **secret** material, encrypted at rest and write-only. Required keys by provider: `smallstep` → `provisioner_password` (optionally `provisioner_key_json`); `adcs` → `username`, `password`; `vault` → `token`; `est` → `username`, `password`. Keys set here override the typed credential arguments. |
+| `settings` | no | Non-secret provider settings persisted in CA account metadata (**plaintext**), such as DigiCert `organization_id`, `container_id`, `server_platform_id`, `dcv_method`, `certificate_dcv_scope`; Smallstep `server_url`, `provisioner_name`, `provisioner_type`, `root_fingerprint`, `ca_bundle_pem`, `default_ttl`, `insecure_skip_tls`; ADCS `enrollment_url`, `enrollment_mode` (`web`/`wcce`/`dcom`), `auth_type`, `template`, `verify_ssl`, `timeout_seconds`. SSLMarket: `mode` (`order` default, or `acme` for the SSLmarket ACME endpoint with external account binding — HTTP-01 only; requires `acme_product_code`, optional `acme_certificate_validity_days` 1–199 and `acme_organization_id`), `product_code`, `dv_auth_method` (`dns`/`email`/`file`), `order_wait_alert_hours`, `dns_solver_type` + `dns_solver_config` (lets MazeVault place DCV TXT records itself; without them a ticket with the record is opened in the organization ticketing integration), owner/authorised-contact/invoice defaults (`owner_*`, `auth_*`, `invoice_*`), default `tech_*` contact and `voucher`. Keys that look like secrets (`*password*`, `*secret*`, `*token*`, `api_key`, `*private_key*`, `*hmac*`) are **rejected at plan time** — put them in `credentials`. |
 
 ## Attribute Reference
 
@@ -88,7 +136,7 @@ resource "mazevault_ca_account" "custom_acme" {
 | `status` | Current connection status. |
 
 > Credential fields (`api_key`, `email`, `directory_url`, `eab_kid`,
-> `eab_hmac_key`) are **write-only**: the backend never returns them, so they are
+> `eab_hmac_key`, `credentials`) are **write-only**: the backend never returns them, so they are
 > preserved from state on read and are not detected as drift.
 
 > `settings` is also preserved from Terraform state on read because the provider

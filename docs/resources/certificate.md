@@ -47,6 +47,19 @@ resource "mazevault_certificate" "external_key" {
 }
 ```
 
+### Server-side key pair with the private key held in Azure Key Vault (Orchestrator Mode)
+
+```hcl
+resource "mazevault_certificate" "kv_custody" {
+  common_name        = "app.example.com"
+  project_id         = mazevault_project.pki.id
+  template_id        = mazevault_certificate_template.web_tls.certificate_template_id
+  key_storage_mode   = "external"
+  key_integration_id = mazevault_integration.kv.id
+  key_secret_name    = "app-example-com-key"
+}
+```
+
 ## Argument Reference
 
 - `common_name` - (Required, ForceNew) Common Name (CN) for the certificate.
@@ -55,6 +68,9 @@ resource "mazevault_certificate" "external_key" {
 - `csr_pem` - (Optional, ForceNew) PEM-encoded Certificate Signing Request. When omitted, MazeVault generates the key pair and CSR server-side.
 - `ttl` - (Optional) Requested certificate TTL (e.g. `"8760h"`). May be constrained by the template.
 - `key_size` - (Optional) Key size in bits for server-side key generation (used when `csr_pem` is omitted).
+- `key_storage_mode` - (Optional, ForceNew) Private key custody for server-side generated key pairs: `local` (default, encrypted with the MazeVault master key) or `external` (offloaded to a secret-manager integration; only a reference is kept). **Required to be `external` when the instance runs in Orchestrator Mode.** Conflicts with `csr_pem`.
+- `key_integration_id` - (Optional, ForceNew) `mazevault_integration` (e.g. Azure Key Vault) that receives the private key in `external` mode. Defaults to the project's default secret-manager integration.
+- `key_secret_name` - (Optional, ForceNew) Secret name created for the private key in `external` mode. Defaults to a name derived from the common name.
 - `organization_ca_account_id` - (Optional, Computed) ID of the organization CA account to sign with, overriding the template's CA resolution. Set to `mazevault_ca.<name>.account_id` to issue from the organization internal CA, or to an external `mazevault_ca_account` id. When omitted, the template's CA — or the active internal CA fallback — is used.
 - `dcv_method` - (Optional, ForceNew) Domain validation method for commercial CAs (`email`, `dns`, `file`). Overrides the template; empty inherits the template, then the CA account.
 - `ca_product_id` - (Optional, ForceNew) CA account product to order (commercial CAs). Overrides the template product.

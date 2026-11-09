@@ -1,6 +1,7 @@
 package resources
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -130,10 +131,18 @@ func TestCAAccountValidateCredentials(t *testing.T) {
 			wantErrPart: "is not supported",
 		},
 		{
-			name: "adcs accepts provider specific credentials",
+			name: "adcs requires username and password in credentials map",
 			model: CAAccountModel{
 				ProviderType: types.StringValue("adcs"),
 				APIKey:       types.StringValue("test-key"),
+			},
+			wantErrPart: `credentials["username"]`,
+		},
+		{
+			name: "adcs accepts username and password in credentials map",
+			model: CAAccountModel{
+				ProviderType: types.StringValue("adcs"),
+				Credentials:  credentialsMap(t, map[string]string{"username": "svc-enroll", "password": "s3cret"}),
 			},
 		},
 		{
@@ -144,10 +153,18 @@ func TestCAAccountValidateCredentials(t *testing.T) {
 			},
 		},
 		{
-			name: "smallstep accepts provider specific credentials",
+			name: "smallstep requires provisioner password",
 			model: CAAccountModel{
 				ProviderType: types.StringValue("smallstep"),
 				APIKey:       types.StringValue("test-key"),
+			},
+			wantErrPart: "provisioner_password",
+		},
+		{
+			name: "smallstep accepts provisioner password in credentials map",
+			model: CAAccountModel{
+				ProviderType: types.StringValue("smallstep"),
+				Credentials:  credentialsMap(t, map[string]string{"provisioner_password": "jwk-pass"}),
 			},
 		},
 		{
@@ -214,7 +231,7 @@ func TestCAAccountValidateCredentials(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.model.validateCredentials()
+			err := tt.model.validateCredentials(context.Background())
 			if tt.wantErrPart == "" {
 				if err != nil {
 					t.Fatalf("validateCredentials() error = %v", err)
@@ -223,6 +240,37 @@ func TestCAAccountValidateCredentials(t *testing.T) {
 			}
 			if err == nil || !strings.Contains(err.Error(), tt.wantErrPart) {
 				t.Fatalf("validateCredentials() error = %v, want containing %q", err, tt.wantErrPart)
+			}
+		})
+	}
+}
+
+func credentialsMap(t *testing.T, values map[string]string) types.Map {
+	t.Helper()
+	m, diags := types.MapValueFrom(context.Background(), types.StringType, values)
+	if diags.HasError() {
+		t.Fatalf("credentialsMap: %v", diags)
+	}
+	return m
+}
+
+func TestCAAccountSettingsRejectSecretLikeKeys(t *testing.T) {
+	tests := []struct {
+		name     string
+		settings map[string]string
+		wantErr  bool
+	}{
+		{name: "smallstep connection settings are allowed", settings: map[string]string{"server_url": "https://ca.local:9000", "provisioner_name": "admin", "root_fingerprint": "ab"}},
+		{name: "provisioner password is rejected", settings: map[string]string{"provisioner_password": "x"}, wantErr: true},
+		{name: "api key is rejected", settings: map[string]string{"api_key": "x"}, wantErr: true},
+		{name: "client secret is rejected", settings: map[string]string{"client_secret": "x"}, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := CAAccountModel{Settings: credentialsMap(t, tt.settings)}
+			diags := model.validateSettingsHaveNoSecrets(context.Background())
+			if diags.HasError() != tt.wantErr {
+				t.Fatalf("validateSettingsHaveNoSecrets() hasError = %v, want %v (%v)", diags.HasError(), tt.wantErr, diags)
 			}
 		})
 	}

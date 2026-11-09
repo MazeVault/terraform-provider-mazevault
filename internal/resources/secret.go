@@ -369,6 +369,10 @@ func (r *SecretResource) Read(ctx context.Context, req resource.ReadRequest, res
 
 	secret, err := r.client.GetSecretByID(state.ID.ValueString())
 	if err != nil {
+		if mazevault.IsNotFoundError(err) {
+			resp.State.RemoveResource(ctx)
+			return
+		}
 		resp.Diagnostics.AddError(
 			"Error reading secret",
 			"Could not read secret ID "+state.ID.ValueString()+": "+err.Error(),
@@ -499,8 +503,8 @@ func (r *SecretResource) Delete(ctx context.Context, req resource.DeleteRequest,
 		return
 	}
 
-	err := r.client.DeleteSecret(state.ID.ValueString())
-	if err != nil {
+	// An object that is already gone needs no deletion.
+	if err := r.client.DeleteSecret(state.ID.ValueString()); err != nil && !mazevault.IsNotFoundError(err) {
 		resp.Diagnostics.AddError(
 			"Error deleting secret",
 			"Could not delete secret, unexpected error: "+err.Error(),

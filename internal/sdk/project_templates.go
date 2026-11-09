@@ -26,16 +26,19 @@ type ProjectTemplate struct {
 }
 
 // ProjectTemplateInput is the request body for creating/updating a project template
-// via POST/PUT /api/v1/organizations/:id/templates.
+// via POST/PUT /api/v1/organizations/:id/templates. The JSON documents are sent
+// without omitempty on purpose: an explicitly empty map/slice must reach the
+// backend so that a template can be reset to "{}" / "[]", while a nil value
+// serialises as null and leaves the stored document untouched.
 type ProjectTemplateInput struct {
 	Name             string                 `json:"name"`
 	Description      string                 `json:"description,omitempty"`
 	Category         string                 `json:"category"`
 	Subtype          string                 `json:"subtype,omitempty"`
 	Version          string                 `json:"version,omitempty"`
-	ProtocolConfig   map[string]interface{} `json:"protocol_config,omitempty"`
-	EnvironmentRules map[string]interface{} `json:"environment_rules,omitempty"`
-	VariableSchema   []interface{}          `json:"variable_schema,omitempty"`
+	ProtocolConfig   map[string]interface{} `json:"protocol_config"`
+	EnvironmentRules map[string]interface{} `json:"environment_rules"`
+	VariableSchema   []interface{}          `json:"variable_schema"`
 }
 
 // ListOrgProjectTemplates lists an organization's project templates (the entities
