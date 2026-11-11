@@ -54,7 +54,7 @@ resource "mazevault_certificate_template" "sslmarket_dv" {
 |----------|----------|-------------|
 | `project_id` | yes | Project that owns the template. Changing forces replacement. |
 | `name` | yes | Template name. |
-| `type` | yes | Template type (e.g. `tls_server`, `tls_client`, `code_signing`). |
+| `type` | yes | Template type (e.g. `tls_server`, `tls_client`, `code_signing`). The value `pgp` is reserved for imported OpenPGP keys and is rejected. |
 | `validity_period` | yes | Duration string for certificate validity (e.g. `8760h`). |
 | `key_usage` | no | List of X.509 key usage extensions. |
 | `challenge_type` | no | ACME challenge policy: `auto` (default), `dns-01`, `http-01`, `tls-alpn-01`. Ignored for non-ACME issuers. SSLMarket accounts in ACME mode validate via `http-01` only. |

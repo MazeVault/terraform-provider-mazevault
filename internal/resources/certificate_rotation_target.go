@@ -89,10 +89,12 @@ func (r *CertificateRotationTargetResource) Schema(_ context.Context, _ resource
 				Description: "UUID of the database integration for database wallet targets.",
 			},
 			"content_mode": schema.StringAttribute{
-				Optional:    true,
-				Computed:    true,
-				Default:     stringdefault.StaticString("full_chain_with_key"),
-				Description: "What is delivered: public_only, public_chain, full_chain_with_key (default), key_only, custom.",
+				Optional: true,
+				Computed: true,
+				Default:  stringdefault.StaticString("full_chain_with_key"),
+				Description: "What is delivered: public_only, public_chain, full_chain_with_key (default), key_only, custom. " +
+					"A target of an OpenPGP key (certificate_type \"pgp\") delivers exactly one ASCII-armored block and must set " +
+					"public_only (public key) or key_only (private key) explicitly; the default is refused for it.",
 			},
 			"target_config_json": schema.StringAttribute{
 				Required: true,

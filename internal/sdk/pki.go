@@ -319,6 +319,13 @@ type Certificate struct {
 	ProjectID               *string `json:"project_id,omitempty"`
 	TemplateID              *string `json:"template_id,omitempty"`
 	OrganizationCAAccountID *string `json:"organization_ca_account_id,omitempty"`
+	// CertificateType is the certificate subtype (for example "ssl_tls"), or "pgp" when the
+	// record holds an OpenPGP key: then CertificatePEM is the ASCII-armored public key,
+	// SerialNumber the key ID and CommonName the primary user ID.
+	CertificateType string `json:"certificate_type,omitempty"`
+	// ThumbprintSHA256 identifies the certificate (SHA-256 of its DER, lowercase hex). Serial
+	// numbers are unique per issuer only; this value is unique per certificate.
+	ThumbprintSHA256 string `json:"thumbprint_sha256,omitempty"`
 }
 
 // SubmitCSRRequest is the request body for submitting a CSR

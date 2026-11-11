@@ -81,7 +81,7 @@ func (r *CertificateTemplateResource) Schema(_ context.Context, _ resource.Schem
 			},
 			"type": schema.StringAttribute{
 				Required:            true,
-				MarkdownDescription: "Certificate type / subtype (e.g. `ssl_tls`, `web_server`, `client_auth`, `code_signing`).",
+				MarkdownDescription: "Certificate type / subtype (e.g. `ssl_tls`, `web_server`, `client_auth`, `code_signing`). The value `pgp` is reserved for imported OpenPGP keys and is rejected.",
 			},
 			"validity_period": schema.StringAttribute{
 				Required:            true,
