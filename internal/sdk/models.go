@@ -11,7 +11,23 @@ import (
 type APIError struct {
 	StatusCode int
 	Message    string
+	// Code is the machine-readable error code the backend sent (ErrorResponse.code), "" when absent.
+	// Callers decide on it, never on the human-readable Message.
+	Code string
 }
+
+// ErrorCode returns the backend error code carried by err ("" for non-API errors or responses without one).
+func ErrorCode(err error) string {
+	var ae *APIError
+	if errors.As(err, &ae) {
+		return ae.Code
+	}
+	return ""
+}
+
+// ErrCodeCertificateSuperseded is sent (409) when a rotation or deployment change targets a certificate the
+// backend has already renewed; the successor certificate carries the configuration now.
+const ErrCodeCertificateSuperseded = "certificate_superseded"
 
 func (e *APIError) Error() string { return e.Message }
 
@@ -169,6 +185,7 @@ type CreateAPITokenRequest struct {
 type ErrorResponse struct {
 	Error   string `json:"error"`
 	Details string `json:"details,omitempty"`
+	Code    string `json:"code,omitempty"`
 }
 
 // ServiceIdentity represents a machine/service account identity

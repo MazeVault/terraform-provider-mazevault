@@ -56,7 +56,7 @@ func (c *Client) Do(req *http.Request, v interface{}) error {
 		if jsonErr := json.Unmarshal(body, &errResp); jsonErr == nil && errResp.Error != "" {
 			msg = fmt.Sprintf("api error: %s (details: %s)", errResp.Error, errResp.Details)
 		}
-		return &APIError{StatusCode: res.StatusCode, Message: msg}
+		return &APIError{StatusCode: res.StatusCode, Message: msg, Code: errResp.Code}
 	}
 
 	if v != nil {

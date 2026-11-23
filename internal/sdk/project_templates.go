@@ -14,10 +14,10 @@ type ProjectTemplate struct {
 	ID               string                 `json:"id"`
 	OrganizationID   string                 `json:"organization_id"`
 	Name             string                 `json:"name"`
-	Description      string                 `json:"description,omitempty"`
+	Description      string                 `json:"description"`
 	Category         string                 `json:"category"`
 	Subtype          string                 `json:"subtype,omitempty"`
-	Version          string                 `json:"version,omitempty"`
+	Version          string                 `json:"version"`
 	ProtocolConfig   map[string]interface{} `json:"protocol_config,omitempty"`
 	EnvironmentRules map[string]interface{} `json:"environment_rules,omitempty"`
 	VariableSchema   []interface{}          `json:"variable_schema,omitempty"`
@@ -32,10 +32,10 @@ type ProjectTemplate struct {
 // serialises as null and leaves the stored document untouched.
 type ProjectTemplateInput struct {
 	Name             string                 `json:"name"`
-	Description      string                 `json:"description,omitempty"`
+	Description      string                 `json:"description"`
 	Category         string                 `json:"category"`
 	Subtype          string                 `json:"subtype,omitempty"`
-	Version          string                 `json:"version,omitempty"`
+	Version          string                 `json:"version"`
 	ProtocolConfig   map[string]interface{} `json:"protocol_config"`
 	EnvironmentRules map[string]interface{} `json:"environment_rules"`
 	VariableSchema   []interface{}          `json:"variable_schema"`
